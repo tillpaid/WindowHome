@@ -1,0 +1,90 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.03529,0.30196,0.94118,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name" : "05-home-roof.svg",
+          "name" : "Home Roof"
+        },
+        {
+          "glass" : false,
+          "image-name" : "04-home-body.svg",
+          "name" : "Home Body"
+        }
+      ],
+      "name" : "Home Mark",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.22
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "03-front-window.svg",
+          "name" : "Front Window"
+        }
+      ],
+      "name" : "Front Window",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.34
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.46
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "02-middle-window.svg",
+          "name" : "Middle Window"
+        }
+      ],
+      "name" : "Middle Window",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.3
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.52
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "01-back-window.svg",
+          "name" : "Back Window"
+        }
+      ],
+      "name" : "Back Window",
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.26
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.58
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

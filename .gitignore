@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Xcode local state
+DerivedData/
+build/
+/dist/
+*.dmg
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+xcuserdata/
+
+# Swift Package Manager local state
+.build/
+.swiftpm/
+
+# Local Codex/agent context
+/.agents/
+/.codex/
+/AGENTS.md
+/WINDOWHOME_NOTES.md
+/windows-app/
+/release-dmg.sh
+/publish-release.sh
+/build-install.sh
+
+# Local design exploration; production icon sources live in WindowHome/
+/Design/
