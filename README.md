@@ -24,7 +24,7 @@ It also includes practical window-management tools—keyboard and mouse snapping
 
 WindowHome currently requires:
 
-- macOS 26.5 or later
+- macOS 13 Ventura or later
 
 1. Download the latest `.dmg` from [GitHub Releases](https://github.com/tillpaid/WindowHome/releases).
 2. Open the disk image and drag **WindowHome** into **Applications**.

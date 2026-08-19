@@ -42,17 +42,28 @@ struct WindowHomeApp: App {
 }
 
 private struct SettingsMenuButton: View {
+    @ViewBuilder
+    var body: some View {
+        if #available(macOS 14.0, *) {
+            ModernSettingsMenuButton()
+        } else {
+            Button("Settings…") {
+                SettingsAppSwitcher.openSettings {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+            }
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+private struct ModernSettingsMenuButton: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Button("Settings…") {
-            SettingsAppSwitcher.showInAppSwitcher()
-            NSApp.activate(ignoringOtherApps: true)
-            openSettings()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                guard let settingsWindow = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) else { return }
-                SettingsAppSwitcher.observeClose(of: settingsWindow)
-                settingsWindow.makeKeyAndOrderFront(nil)
+            SettingsAppSwitcher.openSettings {
+                openSettings()
             }
         }
     }
@@ -64,6 +75,18 @@ private enum SettingsAppSwitcher {
 
     static func showInAppSwitcher() {
         NSApp.setActivationPolicy(.regular)
+    }
+
+    static func openSettings(using action: () -> Void) {
+        showInAppSwitcher()
+        NSApp.activate(ignoringOtherApps: true)
+        action()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            guard let settingsWindow = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) else { return }
+            observeClose(of: settingsWindow)
+            settingsWindow.makeKeyAndOrderFront(nil)
+        }
     }
 
     static func observeClose(of window: NSWindow) {

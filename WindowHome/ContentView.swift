@@ -18,7 +18,7 @@ struct ContentView: View {
             }
             .navigationTitle("WindowHome")
             .navigationSplitViewColumnWidth(min: 180, ideal: 205, max: 240)
-            .toolbar(removing: .sidebarToggle)
+            .hidingSidebarToggleWhenAvailable()
         } detail: {
             VStack(spacing: 0) {
                 ScrollView {
@@ -37,7 +37,7 @@ struct ContentView: View {
             .navigationTitle((selection ?? .home).title)
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
+        .hidingSidebarToggleWhenAvailable()
         .frame(minWidth: 760, idealWidth: 840, minHeight: 560, idealHeight: 660)
     }
 }
@@ -58,6 +58,17 @@ private struct SettingsStatusBar: View {
                 appState.copyStatus()
             }
             .font(.footnote)
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func hidingSidebarToggleWhenAvailable() -> some View {
+        if #available(macOS 14.0, *) {
+            toolbar(removing: .sidebarToggle)
+        } else {
+            self
         }
     }
 }
