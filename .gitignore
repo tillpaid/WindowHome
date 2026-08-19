@@ -4,7 +4,7 @@
 # Xcode local state
 DerivedData/
 build/
-/dist/
+/.dist/
 *.dmg
 *.xcuserstate
 *.xccheckout
@@ -22,9 +22,8 @@ xcuserdata/
 /AGENTS.md
 /WINDOWHOME_NOTES.md
 /windows-app/
-/release-dmg.sh
-/publish-release.sh
-/build-install.sh
+/.scripts/
+Makefile
 
 # Local design exploration; production icon sources live in WindowHome/
 /Design/
