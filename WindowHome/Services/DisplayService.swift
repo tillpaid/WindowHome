@@ -124,7 +124,15 @@ enum DisplayMoveGeometryWriteOrder: Equatable {
     case moveBeforeResize
 }
 
+enum DisplayMoveHomeStabilizationDecision: Equatable {
+    case stop
+    case verifyLater
+    case reapplyAndVerifyLater
+}
+
 enum DisplayMoveHomePolicy {
+    static let stabilizationDelays: [TimeInterval] = [0.06, 0.10, 0.16, 0.24, 0.36, 0.52]
+
     static func shouldApplyFullHome(
         automationEnabled: Bool,
         sourceIsFullScreen: Bool,
@@ -144,6 +152,20 @@ enum DisplayMoveHomePolicy {
         return targetSize.width <= availableWidth && targetSize.height <= availableHeight
             ? .resizeBeforeMove
             : .moveBeforeResize
+    }
+
+    static func stabilizationDecision(
+        actual: WindowGeometry,
+        target: WindowGeometry,
+        isOnTargetDisplay: Bool,
+        tolerance: CGFloat = 4
+    ) -> DisplayMoveHomeStabilizationDecision {
+        guard isOnTargetDisplay else { return .stop }
+        let matchesTarget = abs(actual.origin.x - target.origin.x) <= tolerance
+            && abs(actual.origin.y - target.origin.y) <= tolerance
+            && abs(actual.size.width - target.size.width) <= tolerance
+            && abs(actual.size.height - target.size.height) <= tolerance
+        return matchesTarget ? .verifyLater : .reapplyAndVerifyLater
     }
 }
 

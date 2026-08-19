@@ -227,6 +227,34 @@ struct WindowHomeTests {
         ) == .moveBeforeResize)
     }
 
+    @Test func displayMoveStabilizationReappliesDelayedClaudeFullscreenLayout() {
+        let home = WindowGeometry(
+            origin: CGPoint(x: 100, y: 120),
+            size: CGSize(width: 900, height: 700)
+        )
+        let delayedFullscreen = WindowGeometry(
+            origin: CGPoint(x: 12, y: 30),
+            size: CGSize(width: 1400, height: 900)
+        )
+
+        #expect(DisplayMoveHomePolicy.stabilizationDecision(
+            actual: delayedFullscreen,
+            target: home,
+            isOnTargetDisplay: true
+        ) == .reapplyAndVerifyLater)
+        #expect(DisplayMoveHomePolicy.stabilizationDecision(
+            actual: home,
+            target: home,
+            isOnTargetDisplay: true
+        ) == .verifyLater)
+        #expect(DisplayMoveHomePolicy.stabilizationDecision(
+            actual: delayedFullscreen,
+            target: home,
+            isOnTargetDisplay: false
+        ) == .stop)
+        #expect(DisplayMoveHomePolicy.stabilizationDelays.reduce(0, +) < 2)
+    }
+
     @Test func storedGeometryScalesWhenVisibleFrameChanges() {
         let originalConverter = CoordinateConverter(desktopFrame: CGRect(x: 0, y: 0, width: 1000, height: 800))
         let originalVisibleFrame = CGRect(x: 0, y: 0, width: 1000, height: 800)

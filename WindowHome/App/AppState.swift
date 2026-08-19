@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
     private var snapFractionIndex = 0
     private var activeSnapRequestID: UUID?
     private var activeLaunchRestoreRequestID: UUID?
+    private var activeDisplayMoveRestoreRequestID: UUID?
     private var mouseGesture: MouseGesture?
 
     var mouseSnapEnabled: Bool { mouseSnapMode != .off }
@@ -513,6 +514,7 @@ final class AppState: ObservableObject {
     private func restoreAllOpenApplications() {
         guard let profileStore else { return }
         cancelLaunchRestoreStabilization()
+        cancelDisplayMoveRestoreStabilization()
         resetSnapCycle()
         var restoredCount = 0
         for application in NSWorkspace.shared.runningApplications where application.activationPolicy == .regular && !application.isTerminated {
@@ -1156,6 +1158,9 @@ final class AppState: ObservableObject {
     private func markMouseGestureDragged(_ event: MouseDragEvent) {
         guard var gesture = mouseGesture else { return }
         guard gesture.didDrag || hasWindowGeometryDriftedSinceMouseDown(gesture) else { return }
+        if !gesture.didDrag {
+            cancelDisplayMoveRestoreStabilization()
+        }
         gesture.didDrag = true
         if let candidate = mouseSnapCandidate(for: event) {
             gesture.candidate = candidate
@@ -1437,6 +1442,15 @@ final class AppState: ObservableObject {
                     writeOrder: writeOrder,
                     for: snapshot.window
                 )
+                let requestID = UUID()
+                activeDisplayMoveRestoreRequestID = requestID
+                keepDisplayMoveHomeStable(
+                    targetGeometry,
+                    for: snapshot,
+                    targetDisplayFingerprint: targetDisplay.fingerprint,
+                    requestID: requestID,
+                    attempt: 0
+                )
                 focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(targetGeometry.description)"
                 statusMessage = status
                 return
@@ -1548,6 +1562,66 @@ final class AppState: ObservableObject {
         activeLaunchRestoreRequestID = nil
     }
 
+    private func keepDisplayMoveHomeStable(
+        _ geometry: WindowGeometry,
+        for snapshot: FocusedWindowSnapshot,
+        targetDisplayFingerprint: DisplayFingerprint,
+        requestID: UUID,
+        attempt: Int
+    ) {
+        // Electron apps can finish a fullscreen/maximized layout transition after accepting the
+        // initial AX writes. Keep the explicit display-move Home stable for a short bounded window.
+        let delays = DisplayMoveHomePolicy.stabilizationDelays
+        guard attempt < delays.count else {
+            if activeDisplayMoveRestoreRequestID == requestID {
+                activeDisplayMoveRestoreRequestID = nil
+            }
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+            guard let self, self.activeDisplayMoveRestoreRequestID == requestID else { return }
+            guard let actual = try? self.focusedWindowService.readGeometry(
+                of: snapshot.window,
+                fallbackProcessIdentifier: snapshot.processIdentifier
+            ) else {
+                self.keepDisplayMoveHomeStable(
+                    geometry,
+                    for: snapshot,
+                    targetDisplayFingerprint: targetDisplayFingerprint,
+                    requestID: requestID,
+                    attempt: attempt + 1
+                )
+                return
+            }
+            let currentDisplay = try? self.displayService.context(forAccessibilityGeometry: actual)
+            let decision = DisplayMoveHomePolicy.stabilizationDecision(
+                actual: actual,
+                target: geometry,
+                isOnTargetDisplay: currentDisplay?.fingerprint == targetDisplayFingerprint
+            )
+            guard decision != .stop else {
+                self.cancelDisplayMoveRestoreStabilization()
+                return
+            }
+
+            if decision == .reapplyAndVerifyLater {
+                try? self.focusedWindowService.setGeometry(geometry, for: snapshot.window)
+            }
+            self.keepDisplayMoveHomeStable(
+                geometry,
+                for: snapshot,
+                targetDisplayFingerprint: targetDisplayFingerprint,
+                requestID: requestID,
+                attempt: attempt + 1
+            )
+        }
+    }
+
+    private func cancelDisplayMoveRestoreStabilization() {
+        activeDisplayMoveRestoreRequestID = nil
+    }
+
     private func resetSnapCycle() {
         activeSnapRequestID = nil
         lastSnapDirection = nil
@@ -1648,6 +1722,7 @@ final class AppState: ObservableObject {
     }
 
     private func perform(_ action: String, operation: (FocusedWindowSnapshot) throws -> Void) {
+        cancelDisplayMoveRestoreStabilization()
         do {
             let snapshot = try focusedWindowService.focusedWindow()
             lastSnapshot = snapshot
