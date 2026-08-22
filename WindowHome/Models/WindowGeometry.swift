@@ -57,6 +57,53 @@ enum SymmetricWindowResize {
             size: size
         )
     }
+
+    static func requestedAxisChanged(
+        from sourceSize: CGSize,
+        to appliedSize: CGSize,
+        action: WindowResizeAction,
+        tolerance: CGFloat = 0.5
+    ) -> Bool {
+        let tolerance = max(0, tolerance)
+        switch action {
+        case .increaseWidth:
+            return appliedSize.width > sourceSize.width + tolerance
+        case .decreaseWidth:
+            return appliedSize.width < sourceSize.width - tolerance
+        case .increaseHeight:
+            return appliedSize.height > sourceSize.height + tolerance
+        case .decreaseHeight:
+            return appliedSize.height < sourceSize.height - tolerance
+        }
+    }
+
+    /// Some video windows reject a one-axis increase because they keep a fixed aspect ratio.
+    /// Retry only after the requested axis did not move, preserving ordinary one-axis behavior.
+    static func aspectRatioPreservingRetrySize(
+        from sourceSize: CGSize,
+        toward targetSize: CGSize,
+        appliedSize: CGSize,
+        action: WindowResizeAction
+    ) -> CGSize? {
+        guard sourceSize.width > 0,
+              sourceSize.height > 0,
+              !requestedAxisChanged(from: sourceSize, to: appliedSize, action: action) else {
+            return nil
+        }
+
+        let scale: CGFloat
+        switch action {
+        case .increaseWidth:
+            scale = targetSize.width / sourceSize.width
+        case .increaseHeight:
+            scale = targetSize.height / sourceSize.height
+        case .decreaseWidth, .decreaseHeight:
+            return nil
+        }
+        guard scale > 1 else { return nil }
+
+        return CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+    }
 }
 
 enum PrototypeWindowTransform {
