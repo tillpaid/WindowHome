@@ -75,6 +75,52 @@ struct WindowHomeTests {
         #expect(result.rect.midX == source.rect.midX)
     }
 
+    @Test func rejectedWidthIncreaseRetriesWithTheOriginalAspectRatio() throws {
+        let source = CGSize(width: 800, height: 450)
+        let target = CGSize(width: 820, height: 450)
+
+        let retry = try #require(SymmetricWindowResize.aspectRatioPreservingRetrySize(
+            from: source,
+            toward: target,
+            appliedSize: source,
+            action: .increaseWidth
+        ))
+
+        #expect(abs(retry.width - 820) < 0.001)
+        #expect(abs(retry.height - 461.25) < 0.001)
+    }
+
+    @Test func rejectedHeightIncreaseRetriesWithTheOriginalAspectRatio() throws {
+        let source = CGSize(width: 800, height: 500)
+        let target = CGSize(width: 800, height: 510)
+
+        let retry = try #require(SymmetricWindowResize.aspectRatioPreservingRetrySize(
+            from: source,
+            toward: target,
+            appliedSize: source,
+            action: .increaseHeight
+        ))
+
+        #expect(retry == CGSize(width: 816, height: 510))
+    }
+
+    @Test func acceptedResizeAndDecreaseDoNotUseAspectRatioRetry() {
+        let source = CGSize(width: 800, height: 500)
+
+        #expect(SymmetricWindowResize.aspectRatioPreservingRetrySize(
+            from: source,
+            toward: CGSize(width: 820, height: 500),
+            appliedSize: CGSize(width: 820, height: 500),
+            action: .increaseWidth
+        ) == nil)
+        #expect(SymmetricWindowResize.aspectRatioPreservingRetrySize(
+            from: source,
+            toward: CGSize(width: 780, height: 500),
+            appliedSize: source,
+            action: .decreaseWidth
+        ) == nil)
+    }
+
     @Test func coordinateConversionRoundTripsAcrossMultipleDisplays() {
         let converter = CoordinateConverter(desktopFrame: CGRect(x: -1440, y: 0, width: 3168, height: 2234))
         let source = WindowGeometry(origin: CGPoint(x: -1200, y: 220), size: CGSize(width: 700, height: 500))

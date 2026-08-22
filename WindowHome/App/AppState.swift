@@ -367,6 +367,7 @@ final class AppState: ObservableObject {
             let appliedGeometry = try focusedWindowService.resizeAroundCenter(
                 targetGeometry,
                 from: snapshot.geometry,
+                action: action,
                 for: snapshot.window,
                 processIdentifier: snapshot.processIdentifier
             )
