@@ -15,7 +15,7 @@ It also includes practical window-management tools—keyboard and mouse snapping
 - Apply the destination display's full Home after a WindowHome display move by default, with an option to preserve the current size for regular windows.
 - Snap by keyboard to full screen, halves, or quarters.
 - Repeat a side or corner shortcut to cycle through 50%, 66%, and 33% widths.
-- Resize symmetrically from the window center with configurable steps.
+- Resize symmetrically from the window center with configurable steps, including aspect-ratio-locked video windows such as FaceTime.
 - Optionally snap with the mouse, with visible activation areas and target previews.
 - Restore saved geometry after an app launches.
 - Configure or disable every global shortcut from Settings.

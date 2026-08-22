@@ -178,11 +178,34 @@ final class FocusedWindowService {
     func resizeAroundCenter(
         _ targetGeometry: WindowGeometry,
         from sourceGeometry: WindowGeometry,
+        action: WindowResizeAction,
         for window: AXUIElement,
         processIdentifier: pid_t
     ) throws -> WindowGeometry {
         try setSize(targetGeometry.size, for: window)
-        let appliedGeometry = try readGeometry(of: window, fallbackProcessIdentifier: processIdentifier)
+        var appliedGeometry = try readGeometry(of: window, fallbackProcessIdentifier: processIdentifier)
+
+        if let retrySize = SymmetricWindowResize.aspectRatioPreservingRetrySize(
+            from: sourceGeometry.size,
+            toward: targetGeometry.size,
+            appliedSize: appliedGeometry.size,
+            action: action
+        ) {
+            try setSize(retrySize, for: window)
+            appliedGeometry = try readGeometry(of: window, fallbackProcessIdentifier: processIdentifier)
+
+            // A window with a hard maximum on the requested axis may still accept the other
+            // dimension. Do not let a width command turn into a height-only change (or vice versa).
+            if !SymmetricWindowResize.requestedAxisChanged(
+                from: sourceGeometry.size,
+                to: appliedGeometry.size,
+                action: action
+            ) {
+                try setSize(sourceGeometry.size, for: window)
+                appliedGeometry = try readGeometry(of: window, fallbackProcessIdentifier: processIdentifier)
+            }
+        }
+
         let centeredGeometry = SymmetricWindowResize.geometryWithPreservedCenter(
             source: sourceGeometry,
             size: appliedGeometry.size
