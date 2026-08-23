@@ -107,9 +107,14 @@ final class AppState: ObservableObject {
             statusMessage = error.localizedDescription
         }
         configureMouseWindowTracking()
-        applicationLaunchObserver.start { [weak self] application in
-            Task { @MainActor [weak self] in self?.restoreLaunchedApplication(application) }
-        }
+        applicationLaunchObserver.start(
+            onLaunch: { [weak self] application in
+                Task { @MainActor [weak self] in self?.restoreLaunchedApplication(application) }
+            },
+            onFinderWindowCreated: { [weak self] application, window in
+                Task { @MainActor [weak self] in self?.restoreNewFinderWindow(window, application: application) }
+            }
+        )
     }
 
     func requestAccessibilityPermission() {
@@ -120,7 +125,10 @@ final class AppState: ObservableObject {
 
     func refreshPermissionStatus() {
         permissionGranted = AccessibilityPermissionService.isTrusted
-        if permissionGranted { statusMessage = "Accessibility permission is enabled." }
+        applicationLaunchObserver.refreshFinderObservation()
+        if permissionGranted {
+            statusMessage = "Accessibility permission is enabled."
+        }
     }
 
     func inspectFocusedWindow() {
@@ -543,18 +551,37 @@ final class AppState: ObservableObject {
     private func restoreLaunchedApplication(_ application: NSRunningApplication) {
         guard application.activationPolicy == .regular,
               application.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
-        let requestID = UUID()
-        activeLaunchRestoreRequestID = requestID
-        retryRestoreLaunchedApplication(application, requestID: requestID, attempt: 0)
+        restoreApplication(application)
     }
 
-    private func retryRestoreLaunchedApplication(_ application: NSRunningApplication, requestID: UUID, attempt: Int) {
+    private func restoreNewFinderWindow(_ window: AXUIElement, application: NSRunningApplication) {
+        restoreApplication(application, window: window)
+    }
+
+    private func restoreApplication(_ application: NSRunningApplication, window: AXUIElement? = nil) {
+        let requestID = UUID()
+        activeLaunchRestoreRequestID = requestID
+        retryRestoreApplication(application, window: window, requestID: requestID, attempt: 0)
+    }
+
+    private func retryRestoreApplication(
+        _ application: NSRunningApplication,
+        window: AXUIElement?,
+        requestID: UUID,
+        attempt: Int
+    ) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, !application.isTerminated else { return }
             guard self.activeLaunchRestoreRequestID == requestID else { return }
-            guard let snapshot = self.focusedWindowService.mainWindowSnapshot(for: application) else {
+            let snapshot: FocusedWindowSnapshot?
+            if let window {
+                snapshot = self.focusedWindowService.windowSnapshot(for: window, application: application)
+            } else {
+                snapshot = self.focusedWindowService.mainWindowSnapshot(for: application)
+            }
+            guard let snapshot else {
                 if attempt < 23 {
-                    self.retryRestoreLaunchedApplication(application, requestID: requestID, attempt: attempt + 1)
+                    self.retryRestoreApplication(application, window: window, requestID: requestID, attempt: attempt + 1)
                 }
                 return
             }
@@ -569,16 +596,22 @@ final class AppState: ObservableObject {
                         on: display,
                         padding: CGFloat(self.snapPadding)
                     )
-                    statusMessage = "Restored Home for newly launched \(snapshot.applicationName)."
+                    statusMessage = window == nil
+                        ? "Restored Home for newly launched \(snapshot.applicationName)."
+                        : "Restored Home for newly opened \(snapshot.applicationName) window."
                 } else {
                     geometry = self.displayService.constrainedAccessibilityGeometry(
                         snapshot.geometry,
                         on: display,
                         padding: CGFloat(self.snapPadding)
                     )
-                    statusMessage = self.matches(snapshot.geometry, geometry, tolerance: 2)
-                        ? nil
-                        : "Adjusted newly launched \(snapshot.applicationName) to fit within screen padding."
+                    if self.matches(snapshot.geometry, geometry, tolerance: 2) {
+                        statusMessage = nil
+                    } else if window == nil {
+                        statusMessage = "Adjusted newly launched \(snapshot.applicationName) to fit within screen padding."
+                    } else {
+                        statusMessage = "Adjusted newly opened \(snapshot.applicationName) window to fit within screen padding."
+                    }
                 }
                 try self.focusedWindowService.setGeometry(geometry, for: snapshot.window)
                 self.keepLaunchRestoreStable(
@@ -593,7 +626,7 @@ final class AppState: ObservableObject {
                 }
             } catch {
                 if attempt < 23 {
-                    self.retryRestoreLaunchedApplication(application, requestID: requestID, attempt: attempt + 1)
+                    self.retryRestoreApplication(application, window: window, requestID: requestID, attempt: attempt + 1)
                 }
             }
         }
