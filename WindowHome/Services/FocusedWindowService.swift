@@ -46,11 +46,19 @@ struct FocusedWindowSnapshot {
 final class FocusedWindowService {
     func mainWindowSnapshot(for application: NSRunningApplication) -> FocusedWindowSnapshot? {
         guard AccessibilityPermissionService.isTrusted,
-              let bundleIdentifier = application.bundleIdentifier else {
+              application.bundleIdentifier != nil else {
             return nil
         }
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
-        guard let window = focusedOrMainWindow(for: applicationElement),
+        guard let window = focusedOrMainWindow(for: applicationElement) else {
+            return nil
+        }
+        return windowSnapshot(for: window, application: application)
+    }
+
+    func windowSnapshot(for window: AXUIElement, application: NSRunningApplication) -> FocusedWindowSnapshot? {
+        guard AccessibilityPermissionService.isTrusted,
+              let bundleIdentifier = application.bundleIdentifier,
               let geometry = try? readGeometry(of: window, fallbackProcessIdentifier: application.processIdentifier) else {
             return nil
         }
