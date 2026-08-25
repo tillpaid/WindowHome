@@ -96,6 +96,7 @@ Saved window profiles are stored as JSON at:
 - Automatic display-move restore applies only to WindowHome's Next/Previous Display shortcuts; WindowHome does not monitor arbitrary window movements.
 - Mouse Snap currently supports left, right, and full-screen targets; keyboard Snap also supports top, bottom, and corners.
 - Some apps enforce their own minimum or maximum window size. WindowHome keeps the closest geometry the app accepts.
+- For fixed-size app windows, **Center & Save Home** still centers the window and saves its actual size without requesting a resize.
 - WindowHome uses public macOS Accessibility APIs; cross-app moves cannot be applied as one atomic animated frame update.
 
 ## Development

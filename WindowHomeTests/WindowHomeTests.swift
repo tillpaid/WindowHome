@@ -27,6 +27,63 @@ struct WindowHomeTests {
         #expect(result.origin == CGPoint(x: 5, y: 5))
     }
 
+    @Test func fixedSizeWindowCentersWithoutRequestingAResize() {
+        let preferred = WindowGeometry(
+            origin: CGPoint(x: 250, y: 150),
+            size: CGSize(width: 900, height: 700)
+        )
+        let positionOnly = WindowGeometry(
+            origin: CGPoint(x: 350, y: 250),
+            size: CGSize(width: 700, height: 500)
+        )
+
+        let plan = CenterWindowGeometryPlan.make(
+            preferredGeometry: preferred,
+            positionOnlyGeometry: positionOnly,
+            sizeIsSettable: false
+        )
+
+        #expect(plan == CenterWindowGeometryPlan(geometry: positionOnly, requiresResize: false))
+    }
+
+    @Test func resizableWindowCanUsePreferredHomeSizeWhileCentering() {
+        let preferred = WindowGeometry(
+            origin: CGPoint(x: 250, y: 150),
+            size: CGSize(width: 900, height: 700)
+        )
+        let positionOnly = WindowGeometry(
+            origin: CGPoint(x: 350, y: 250),
+            size: CGSize(width: 700, height: 500)
+        )
+
+        let plan = CenterWindowGeometryPlan.make(
+            preferredGeometry: preferred,
+            positionOnlyGeometry: positionOnly,
+            sizeIsSettable: true
+        )
+
+        #expect(plan == CenterWindowGeometryPlan(geometry: preferred, requiresResize: true))
+    }
+
+    @Test func centeringSameSizeUsesOnlyPositionEvenWhenWindowIsResizable() {
+        let preferred = WindowGeometry(
+            origin: CGPoint(x: 250, y: 150),
+            size: CGSize(width: 700, height: 500)
+        )
+        let positionOnly = WindowGeometry(
+            origin: CGPoint(x: 250, y: 150),
+            size: CGSize(width: 700, height: 500)
+        )
+
+        let plan = CenterWindowGeometryPlan.make(
+            preferredGeometry: preferred,
+            positionOnlyGeometry: positionOnly,
+            sizeIsSettable: true
+        )
+
+        #expect(plan == CenterWindowGeometryPlan(geometry: positionOnly, requiresResize: false))
+    }
+
     @Test func symmetricResizeShrinksBothAxesAroundTheSameCenter() {
         var geometry = WindowGeometry(
             origin: CGPoint(x: 100, y: 100),
