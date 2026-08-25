@@ -135,6 +135,34 @@ final class FocusedWindowService {
         try setGeometryValues(geometry, for: window)
     }
 
+    /// Centers a window while treating resize support as optional. Fixed-size apps such as
+    /// Speedtest and OpenVPN can expose a settable AXPosition but a read-only AXSize; those
+    /// windows should still move and persist their actual size as Home.
+    func setGeometryForCentering(
+        preferredGeometry: WindowGeometry,
+        positionOnlyGeometry: WindowGeometry,
+        for window: AXUIElement
+    ) throws -> WindowGeometry {
+        var canSetSize = DarwinBoolean(false)
+        let sizeSettableResult = AXUIElementIsAttributeSettable(
+            window,
+            kAXSizeAttribute as CFString,
+            &canSetSize
+        )
+        let plan = CenterWindowGeometryPlan.make(
+            preferredGeometry: preferredGeometry,
+            positionOnlyGeometry: positionOnlyGeometry,
+            sizeIsSettable: sizeSettableResult == .success && canSetSize.boolValue
+        )
+
+        if plan.requiresResize {
+            try setGeometry(plan.geometry, for: window)
+        } else {
+            try setPosition(plan.geometry.origin, for: window)
+        }
+        return plan.geometry
+    }
+
     func setGeometryForDisplayMove(
         _ geometry: WindowGeometry,
         writeOrder: DisplayMoveGeometryWriteOrder,

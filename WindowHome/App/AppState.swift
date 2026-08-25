@@ -319,12 +319,21 @@ final class AppState: ObservableObject {
                 sourceGeometry = snapshot.geometry
             }
 
-            let centeredGeometry = displayService.centeredAccessibilityGeometry(
+            let preferredCenteredGeometry = displayService.centeredAccessibilityGeometry(
                 size: sourceGeometry.size,
                 on: display,
                 padding: CGFloat(snapPadding)
             )
-            try focusedWindowService.setGeometry(centeredGeometry, for: snapshot.window)
+            let positionOnlyCenteredGeometry = displayService.centeredAccessibilityGeometry(
+                size: snapshot.geometry.size,
+                on: display,
+                padding: CGFloat(snapPadding)
+            )
+            let centeredGeometry = try focusedWindowService.setGeometryForCentering(
+                preferredGeometry: preferredCenteredGeometry,
+                positionOnlyGeometry: positionOnlyCenteredGeometry,
+                for: snapshot.window
+            )
             let profile = WindowProfile(
                 id: UUID(),
                 bundleIdentifier: bundleIdentifier,

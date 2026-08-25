@@ -16,6 +16,23 @@ struct WindowGeometry: Equatable, Sendable {
     }
 }
 
+struct CenterWindowGeometryPlan: Equatable {
+    let geometry: WindowGeometry
+    let requiresResize: Bool
+
+    static func make(
+        preferredGeometry: WindowGeometry,
+        positionOnlyGeometry: WindowGeometry,
+        sizeIsSettable: Bool
+    ) -> CenterWindowGeometryPlan {
+        let requiresResize = sizeIsSettable && preferredGeometry.size != positionOnlyGeometry.size
+        return CenterWindowGeometryPlan(
+            geometry: requiresResize ? preferredGeometry : positionOnlyGeometry,
+            requiresResize: requiresResize
+        )
+    }
+}
+
 enum WindowResizeAction: CaseIterable {
     case increaseWidth
     case decreaseWidth
