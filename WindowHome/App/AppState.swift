@@ -564,6 +564,7 @@ final class AppState: ObservableObject {
     }
 
     private func restoreNewFinderWindow(_ window: AXUIElement, application: NSRunningApplication) {
+        guard focusedWindowService.shouldAttemptToManageWindow(window, for: application) else { return }
         restoreApplication(application, window: window)
     }
 
@@ -582,6 +583,11 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, !application.isTerminated else { return }
             guard self.activeLaunchRestoreRequestID == requestID else { return }
+            if let window,
+               !self.focusedWindowService.shouldAttemptToManageWindow(window, for: application) {
+                self.activeLaunchRestoreRequestID = nil
+                return
+            }
             let snapshot: FocusedWindowSnapshot?
             if let window {
                 snapshot = self.focusedWindowService.windowSnapshot(for: window, application: application)

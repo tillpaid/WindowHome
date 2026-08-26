@@ -43,6 +43,43 @@ struct FocusedWindowSnapshot {
     let geometry: WindowGeometry
 }
 
+enum WindowManagementEligibility {
+    static let finderBundleIdentifier = "com.apple.finder"
+
+    private static let quickLookBundleIdentifiers: Set<String> = [
+        "com.apple.quicklook.QuickLookUIService",
+        "com.apple.quicklook.ui.helper"
+    ]
+
+    static func shouldManage(
+        bundleIdentifier: String,
+        role: String? = nil,
+        subrole: String? = nil,
+        documentIsDirectory: Bool? = nil
+    ) -> Bool {
+        guard !quickLookBundleIdentifiers.contains(bundleIdentifier) else { return false }
+        guard bundleIdentifier == finderBundleIdentifier else { return true }
+        if let role, role != kAXWindowRole { return false }
+        if let subrole, subrole != kAXStandardWindowSubrole { return false }
+        if let documentIsDirectory, !documentIsDirectory { return false }
+        return true
+    }
+
+    static func shouldAttemptManagement(
+        bundleIdentifier: String,
+        role: String? = nil,
+        subrole: String? = nil,
+        documentIsDirectory: Bool? = nil
+    ) -> Bool {
+        guard !quickLookBundleIdentifiers.contains(bundleIdentifier) else { return false }
+        guard bundleIdentifier == finderBundleIdentifier else { return true }
+        if let role, role != kAXWindowRole { return false }
+        if let subrole, subrole != kAXStandardWindowSubrole { return false }
+        if let documentIsDirectory { return documentIsDirectory }
+        return true
+    }
+}
+
 final class FocusedWindowService {
     func mainWindowSnapshot(for application: NSRunningApplication) -> FocusedWindowSnapshot? {
         guard AccessibilityPermissionService.isTrusted,
@@ -59,6 +96,7 @@ final class FocusedWindowService {
     func windowSnapshot(for window: AXUIElement, application: NSRunningApplication) -> FocusedWindowSnapshot? {
         guard AccessibilityPermissionService.isTrusted,
               let bundleIdentifier = application.bundleIdentifier,
+              isManageableWindow(window, bundleIdentifier: bundleIdentifier),
               let geometry = try? readGeometry(of: window, fallbackProcessIdentifier: application.processIdentifier) else {
             return nil
         }
@@ -87,9 +125,33 @@ final class FocusedWindowService {
 
         let pid = processIdentifier(for: application)
         let runningApplication = NSRunningApplication(processIdentifier: pid)
+        let bundleIdentifier = runningApplication?.bundleIdentifier
+        if let bundleIdentifier, !isManageableWindow(window, bundleIdentifier: bundleIdentifier) {
+            throw FocusedWindowError.unsupportedWindow
+        }
         let geometry = try readGeometry(of: window, fallbackProcessIdentifier: pid)
 
-        return FocusedWindowSnapshot(window: window, windowIdentifier: CFHash(window), processIdentifier: pid, applicationName: runningApplication?.localizedName ?? "Unknown app", bundleIdentifier: runningApplication?.bundleIdentifier, geometry: geometry)
+        return FocusedWindowSnapshot(window: window, windowIdentifier: CFHash(window), processIdentifier: pid, applicationName: runningApplication?.localizedName ?? "Unknown app", bundleIdentifier: bundleIdentifier, geometry: geometry)
+    }
+
+    func isManageableWindow(_ window: AXUIElement, for application: NSRunningApplication) -> Bool {
+        guard let bundleIdentifier = application.bundleIdentifier else { return false }
+        return isManageableWindow(window, bundleIdentifier: bundleIdentifier)
+    }
+
+    func shouldAttemptToManageWindow(_ window: AXUIElement, for application: NSRunningApplication) -> Bool {
+        guard let bundleIdentifier = application.bundleIdentifier else { return false }
+        guard bundleIdentifier == WindowManagementEligibility.finderBundleIdentifier else {
+            return WindowManagementEligibility.shouldAttemptManagement(bundleIdentifier: bundleIdentifier)
+        }
+
+        let metadata = finderWindowMetadata(for: window)
+        return WindowManagementEligibility.shouldAttemptManagement(
+            bundleIdentifier: bundleIdentifier,
+            role: metadata.role,
+            subrole: metadata.subrole,
+            documentIsDirectory: metadata.documentIsDirectory
+        )
     }
 
     func readGeometry(of window: AXUIElement, fallbackProcessIdentifier: pid_t? = nil) throws -> WindowGeometry {
@@ -280,6 +342,62 @@ final class FocusedWindowService {
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard result == .success else { throw FocusedWindowError.cannotReadGeometry(result) }
         return value
+    }
+
+    private func optionalAttributeValue(_ attribute: String, from element: AXUIElement) -> CFTypeRef? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
+            return nil
+        }
+        return value
+    }
+
+    private func isManageableWindow(_ window: AXUIElement, bundleIdentifier: String) -> Bool {
+        guard bundleIdentifier == WindowManagementEligibility.finderBundleIdentifier else {
+            return WindowManagementEligibility.shouldManage(bundleIdentifier: bundleIdentifier)
+        }
+
+        let metadata = finderWindowMetadata(for: window)
+        return WindowManagementEligibility.shouldManage(
+            bundleIdentifier: bundleIdentifier,
+            role: metadata.role,
+            subrole: metadata.subrole,
+            documentIsDirectory: metadata.documentIsDirectory
+        )
+    }
+
+    private func finderWindowMetadata(for window: AXUIElement) -> (
+        role: String?,
+        subrole: String?,
+        documentIsDirectory: Bool?
+    ) {
+        (
+            optionalAttributeValue(kAXRoleAttribute, from: window) as? String,
+            optionalAttributeValue(kAXSubroleAttribute, from: window) as? String,
+            finderDocumentIsDirectory(for: window)
+        )
+    }
+
+    private func finderDocumentIsDirectory(for window: AXUIElement) -> Bool? {
+        guard let documentValue = optionalAttributeValue(kAXDocumentAttribute, from: window) else {
+            return nil
+        }
+
+        let documentURL: URL?
+        if let url = documentValue as? URL {
+            documentURL = url
+        } else if let string = documentValue as? String {
+            documentURL = string.hasPrefix("/") ? URL(fileURLWithPath: string) : URL(string: string)
+        } else {
+            documentURL = nil
+        }
+
+        guard let documentURL, documentURL.isFileURL else { return false }
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: documentURL.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        return isDirectory.boolValue
     }
 
     /// AXFocusedApplication may report kAXErrorNoValue for some Chromium and Electron apps.

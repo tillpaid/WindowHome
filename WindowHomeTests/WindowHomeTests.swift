@@ -13,6 +13,71 @@ import Foundation
 @MainActor
 struct WindowHomeTests {
 
+    @Test func quickLookServiceWindowsAreNeverManaged() {
+        #expect(!WindowManagementEligibility.shouldManage(bundleIdentifier: "com.apple.quicklook.QuickLookUIService"))
+        #expect(!WindowManagementEligibility.shouldManage(bundleIdentifier: "com.apple.quicklook.ui.helper"))
+    }
+
+    @Test func finderRejectsConfirmedPreviewAndUtilityWindows() {
+        #expect(WindowManagementEligibility.shouldManage(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            documentIsDirectory: true
+        ))
+        #expect(!WindowManagementEligibility.shouldManage(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            documentIsDirectory: false
+        ))
+        #expect(WindowManagementEligibility.shouldManage(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            documentIsDirectory: nil
+        ))
+        #expect(WindowManagementEligibility.shouldManage(
+            bundleIdentifier: "com.apple.finder",
+            role: nil,
+            subrole: nil,
+            documentIsDirectory: true
+        ))
+        #expect(!WindowManagementEligibility.shouldManage(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXDialog",
+            documentIsDirectory: true
+        ))
+    }
+
+    @Test func finderWaitsForWindowMetadataBeforeDecidingWhetherToRestore() {
+        #expect(WindowManagementEligibility.shouldAttemptManagement(
+            bundleIdentifier: "com.apple.finder"
+        ))
+        #expect(WindowManagementEligibility.shouldAttemptManagement(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            documentIsDirectory: true
+        ))
+        #expect(!WindowManagementEligibility.shouldAttemptManagement(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            documentIsDirectory: false
+        ))
+        #expect(!WindowManagementEligibility.shouldAttemptManagement(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXDialog"
+        ))
+    }
+
+    @Test func regularApplicationWindowsRemainManageable() {
+        #expect(WindowManagementEligibility.shouldManage(bundleIdentifier: "com.example.RegularApp"))
+    }
+
     @Test func prototypeInsetMovesAndShrinksGeometry() {
         let result = PrototypeWindowTransform.inset(from: WindowGeometry(origin: CGPoint(x: 100, y: 80), size: CGSize(width: 800, height: 600)))
 
