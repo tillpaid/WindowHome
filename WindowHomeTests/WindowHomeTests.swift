@@ -18,11 +18,19 @@ struct WindowHomeTests {
         #expect(!WindowManagementEligibility.shouldManage(bundleIdentifier: "com.apple.quicklook.ui.helper"))
     }
 
-    @Test func finderRejectsConfirmedPreviewAndUtilityWindows() {
+    @Test func finderRejectsConfirmedPreviewInfoAndUtilityWindows() {
         #expect(WindowManagementEligibility.shouldManage(
             bundleIdentifier: "com.apple.finder",
             role: "AXWindow",
             subrole: "AXStandardWindow",
+            identifier: "FinderWindow",
+            documentIsDirectory: true
+        ))
+        #expect(!WindowManagementEligibility.shouldManage(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            identifier: "Info",
             documentIsDirectory: true
         ))
         #expect(!WindowManagementEligibility.shouldManage(
@@ -71,6 +79,13 @@ struct WindowHomeTests {
             bundleIdentifier: "com.apple.finder",
             role: "AXWindow",
             subrole: "AXDialog"
+        ))
+        #expect(!WindowManagementEligibility.shouldAttemptManagement(
+            bundleIdentifier: "com.apple.finder",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            identifier: "Info",
+            documentIsDirectory: true
         ))
     }
 
