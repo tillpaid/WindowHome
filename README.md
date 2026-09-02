@@ -17,7 +17,7 @@ It also includes practical window-management tools—keyboard and mouse snapping
 - Repeat a side or corner shortcut to cycle through 50%, 66%, and 33% widths.
 - Resize symmetrically from the window center with configurable steps, including aspect-ratio-locked video windows such as FaceTime.
 - Optionally snap with the mouse, with visible activation areas and target previews.
-- Restore saved geometry after an app launches and whenever a new Finder browser window opens, while leaving Finder Quick Look previews and utility panels untouched.
+- Restore saved geometry after an app launches and whenever a new Finder browser window opens, while leaving Finder Quick Look previews, Get Info windows, and utility panels untouched.
 - Configure or disable every global shortcut from Settings.
 
 ## Install
@@ -93,7 +93,7 @@ Saved window profiles are stored as JSON at:
 - A Home belongs to an application, display, and effective resolution—not to an individual window or browser tab.
 - **Restore All** restores one main window per running app so multiple windows do not overlap.
 - App-launch restore—including newly opened Finder windows—keeps a window on its current display.
-- Finder Quick Look previews and utility panels are excluded from Home, Snap, resize, and automatic restore actions.
+- Finder Quick Look previews, Get Info windows, and utility panels are excluded from Home, Snap, resize, and automatic restore actions.
 - Automatic display-move restore applies only to WindowHome's Next/Previous Display shortcuts; WindowHome does not monitor arbitrary window movements.
 - Mouse Snap currently supports left, right, and full-screen targets; keyboard Snap also supports top, bottom, and corners.
 - Some apps enforce their own minimum or maximum window size. WindowHome keeps the closest geometry the app accepts.

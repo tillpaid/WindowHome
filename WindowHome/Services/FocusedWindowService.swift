@@ -45,6 +45,7 @@ struct FocusedWindowSnapshot {
 
 enum WindowManagementEligibility {
     static let finderBundleIdentifier = "com.apple.finder"
+    private static let finderInfoWindowIdentifier = "Info"
 
     private static let quickLookBundleIdentifiers: Set<String> = [
         "com.apple.quicklook.QuickLookUIService",
@@ -55,12 +56,14 @@ enum WindowManagementEligibility {
         bundleIdentifier: String,
         role: String? = nil,
         subrole: String? = nil,
+        identifier: String? = nil,
         documentIsDirectory: Bool? = nil
     ) -> Bool {
         guard !quickLookBundleIdentifiers.contains(bundleIdentifier) else { return false }
         guard bundleIdentifier == finderBundleIdentifier else { return true }
         if let role, role != kAXWindowRole { return false }
         if let subrole, subrole != kAXStandardWindowSubrole { return false }
+        if identifier == finderInfoWindowIdentifier { return false }
         if let documentIsDirectory, !documentIsDirectory { return false }
         return true
     }
@@ -69,12 +72,14 @@ enum WindowManagementEligibility {
         bundleIdentifier: String,
         role: String? = nil,
         subrole: String? = nil,
+        identifier: String? = nil,
         documentIsDirectory: Bool? = nil
     ) -> Bool {
         guard !quickLookBundleIdentifiers.contains(bundleIdentifier) else { return false }
         guard bundleIdentifier == finderBundleIdentifier else { return true }
         if let role, role != kAXWindowRole { return false }
         if let subrole, subrole != kAXStandardWindowSubrole { return false }
+        if identifier == finderInfoWindowIdentifier { return false }
         if let documentIsDirectory { return documentIsDirectory }
         return true
     }
@@ -150,6 +155,7 @@ final class FocusedWindowService {
             bundleIdentifier: bundleIdentifier,
             role: metadata.role,
             subrole: metadata.subrole,
+            identifier: metadata.identifier,
             documentIsDirectory: metadata.documentIsDirectory
         )
     }
@@ -362,6 +368,7 @@ final class FocusedWindowService {
             bundleIdentifier: bundleIdentifier,
             role: metadata.role,
             subrole: metadata.subrole,
+            identifier: metadata.identifier,
             documentIsDirectory: metadata.documentIsDirectory
         )
     }
@@ -369,11 +376,13 @@ final class FocusedWindowService {
     private func finderWindowMetadata(for window: AXUIElement) -> (
         role: String?,
         subrole: String?,
+        identifier: String?,
         documentIsDirectory: Bool?
     ) {
         (
             optionalAttributeValue(kAXRoleAttribute, from: window) as? String,
             optionalAttributeValue(kAXSubroleAttribute, from: window) as? String,
+            optionalAttributeValue(kAXIdentifierAttribute, from: window) as? String,
             finderDocumentIsDirectory(for: window)
         )
     }
