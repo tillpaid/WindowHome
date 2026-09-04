@@ -13,6 +13,83 @@ import Foundation
 @MainActor
 struct WindowHomeTests {
 
+    @Test func bulkShortcutsUseNumberDefaultsAndPersistIndependently() throws {
+        let suiteName = "WindowHomeTests.bulkShortcuts.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(1, defaults: defaults) == .moveAllToDisplayDefault(1))
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(2, defaults: defaults) == .moveAllToDisplayDefault(2))
+        #expect(KeyboardShortcut.moveAllToDisplayDefault(1)?.displayString == "⌃⌥⌘1")
+        #expect(KeyboardShortcut.moveAllToDisplayDefault(2)?.displayString == "⌃⌥⌘2")
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(.saveHomeDefault, number: 1, defaults: defaults)
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(.restoreHomeDefault, number: 2, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(1, defaults: defaults) == .saveHomeDefault)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(2, defaults: defaults) == .restoreHomeDefault)
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(nil, number: 1, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(1, defaults: defaults) == nil)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(2, defaults: defaults) == .restoreHomeDefault)
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(.saveHomeDefault, number: 1, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(1, defaults: defaults) == .saveHomeDefault)
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(nil, number: 2, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(2, defaults: defaults) == nil)
+    }
+
+    @Test func bulkDisplayShortcutsSupportMoreThanTwoDisplays() throws {
+        let suiteName = "WindowHomeTests.multipleDisplays.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var shortcuts: [KeyboardShortcut] = []
+        for number in 1...9 {
+            let shortcut = try #require(KeyboardShortcutPreferences.loadMoveAllToDisplay(number, defaults: defaults))
+            #expect(shortcut.displayString == "⌃⌥⌘\(number)")
+            #expect(!shortcuts.contains(shortcut))
+            shortcuts.append(shortcut)
+        }
+        #expect(KeyboardShortcut.moveAllToDisplayDefault(0) == nil)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(10, defaults: defaults) == nil)
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(.saveHomeDefault, number: 12, defaults: defaults)
+        KeyboardShortcutPreferences.saveMoveAllToDisplay(nil, number: 3, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(12, defaults: defaults) == .saveHomeDefault)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(3, defaults: defaults) == nil)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(9, defaults: defaults) == .moveAllToDisplayDefault(9))
+        #expect(KeyboardShortcutPreferences.savedMoveAllDisplayNumbers(defaults: defaults) == [3, 12])
+        // The original numbered keys remain compatible with the generic loader.
+        defaults.set(try JSONEncoder().encode(KeyboardShortcut.restoreHomeDefault), forKey: "moveAllToDisplay1Shortcut")
+        defaults.set(true, forKey: "moveAllToDisplay2ShortcutCleared")
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(1, defaults: defaults) == .restoreHomeDefault)
+        #expect(KeyboardShortcutPreferences.loadMoveAllToDisplay(2, defaults: defaults) == nil)
+    }
+
+    @Test func displayListKeepsSystemOrderAndHasNoNineDisplayLimit() {
+        let names = (1...12).map { "Monitor \($0)" }
+        let displays = DisplayService.numberedDisplays(names: names)
+        #expect(displays.map(\.number) == Array(1...12))
+        #expect(displays.map(\.name) == names)
+        #expect(DisplayService.numberedDisplays(names: []).isEmpty)
+        #expect(DisplayService.numberedDisplays(names: ["Same", "Same"]).map(\.number) == [1, 2])
+        #expect(DisplayService.displayIndex(number: 12, count: 12) == 11)
+        #expect(DisplayService.displayIndex(number: 12, count: 11) == nil)
+    }
+
+    @Test func numberedDisplaySelectionDoesNotWrapOrFallBack() {
+        #expect(DisplayService.displayIndex(number: 1, count: 2) == 0)
+        #expect(DisplayService.displayIndex(number: 2, count: 2) == 1)
+        #expect(DisplayService.displayIndex(number: 2, count: 1) == nil)
+        #expect(DisplayService.displayIndex(number: 1, count: 0) == nil)
+        #expect(DisplayService.displayIndex(number: 0, count: 2) == nil)
+        #expect(DisplayService.displayIndex(number: -1, count: 2) == nil)
+    }
+
+    @Test func bulkMoveExcludesMinimizedFullscreenAndUtilityWindows() {
+        #expect(WindowManagementEligibility.shouldIncludeInBulkMove(role: "AXWindow", subrole: "AXStandardWindow", minimized: false, fullScreen: false))
+        #expect(WindowManagementEligibility.shouldIncludeInBulkMove(role: "AXWindow", subrole: nil, minimized: false, fullScreen: false))
+        #expect(!WindowManagementEligibility.shouldIncludeInBulkMove(role: "AXWindow", subrole: "AXStandardWindow", minimized: true, fullScreen: false))
+        #expect(!WindowManagementEligibility.shouldIncludeInBulkMove(role: "AXWindow", subrole: "AXStandardWindow", minimized: false, fullScreen: true))
+        #expect(!WindowManagementEligibility.shouldIncludeInBulkMove(role: "AXWindow", subrole: "AXDialog", minimized: false, fullScreen: false))
+        #expect(!WindowManagementEligibility.shouldIncludeInBulkMove(role: "AXSheet", subrole: nil, minimized: false, fullScreen: false))
+        #expect(!WindowManagementEligibility.shouldIncludeInBulkMove(role: nil, subrole: nil, minimized: false, fullScreen: false))
+    }
+
     @Test func quickLookServiceWindowsAreNeverManaged() {
         #expect(!WindowManagementEligibility.shouldManage(bundleIdentifier: "com.apple.quicklook.QuickLookUIService"))
         #expect(!WindowManagementEligibility.shouldManage(bundleIdentifier: "com.apple.quicklook.ui.helper"))
@@ -408,6 +485,50 @@ struct WindowHomeTests {
             sourceVisibleFrame: smallSource,
             padding: 20
         ) == .moveBeforeResize)
+    }
+
+    @Test func bulkMoveKeepsOperaHomeStableAlongsideOtherWindows() {
+        let opera = DisplayMoveRequests.WindowID(processIdentifier: 100, windowIdentifier: 1)
+        let secondOperaWindow = DisplayMoveRequests.WindowID(processIdentifier: 100, windowIdentifier: 2)
+        let otherApp = DisplayMoveRequests.WindowID(processIdentifier: 200, windowIdentifier: 1)
+        var requests = DisplayMoveRequests()
+        let operaRequest = requests.begin(for: opera)
+        let secondRequest = requests.begin(for: secondOperaWindow)
+        let otherRequest = requests.begin(for: otherApp)
+        let home = WindowGeometry(origin: CGPoint(x: 60, y: 70), size: CGSize(width: 900, height: 700))
+        let delayedFullscreen = WindowGeometry(origin: home.origin, size: CGSize(width: 1400, height: 1000))
+
+        // An early match must keep the request alive for a later browser layout change.
+        #expect(DisplayMoveHomePolicy.stabilizationDecision(actual: home, target: home, isOnTargetDisplay: true) == .verifyLater)
+        #expect(requests.isActive(operaRequest, for: opera))
+        #expect(DisplayMoveHomePolicy.stabilizationDecision(actual: delayedFullscreen, target: home, isOnTargetDisplay: true) == .reapplyAndVerifyLater)
+        requests.finish(otherRequest, for: otherApp)
+        #expect(requests.isActive(operaRequest, for: opera))
+        #expect(requests.isActive(secondRequest, for: secondOperaWindow))
+
+        // Leaving the destination stops this window without interrupting the rest of the batch.
+        #expect(DisplayMoveHomePolicy.stabilizationDecision(actual: delayedFullscreen, target: home, isOnTargetDisplay: false) == .stop)
+        requests.finish(operaRequest, for: opera)
+        #expect(!requests.isActive(operaRequest, for: opera))
+        #expect(requests.isActive(secondRequest, for: secondOperaWindow))
+    }
+
+    @Test func newerMovesAndUserActionsCancelStaleBulkRestoreRequests() {
+        let first = DisplayMoveRequests.WindowID(processIdentifier: 100, windowIdentifier: 1)
+        let second = DisplayMoveRequests.WindowID(processIdentifier: 100, windowIdentifier: 2)
+        var requests = DisplayMoveRequests()
+        let oldRequest = requests.begin(for: first)
+        let newRequest = requests.begin(for: first)
+        let secondRequest = requests.begin(for: second)
+        #expect(!requests.isActive(oldRequest, for: first))
+        requests.finish(oldRequest, for: first)
+        #expect(requests.isActive(newRequest, for: first))
+        requests.cancelAll()
+        #expect(!requests.isActive(newRequest, for: first))
+        #expect(!requests.isActive(secondRequest, for: second))
+        let latestRequest = requests.begin(for: first)
+        requests.finish(newRequest, for: first)
+        #expect(requests.isActive(latestRequest, for: first))
     }
 
     @Test func displayMoveStabilizationReappliesDelayedClaudeFullscreenLayout() {

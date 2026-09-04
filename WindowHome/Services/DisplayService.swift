@@ -7,6 +7,12 @@ struct DisplayContext {
     let visibleFrame: CGRect
 }
 
+struct NumberedDisplay: Identifiable {
+    let number: Int
+    let name: String
+    var id: Int { number }
+}
+
 enum SnapDirection: CaseIterable, Hashable {
     case left, right, top, bottom, fullScreen, topLeft, topRight, bottomLeft, bottomRight
 }
@@ -130,6 +136,34 @@ enum DisplayMoveHomeStabilizationDecision: Equatable {
     case reapplyAndVerifyLater
 }
 
+/// Each window owns its settling request so a batch can stabilize all moved windows.
+/// Cancelling an expired request must never cancel a newer move or another window.
+struct DisplayMoveRequests {
+    struct WindowID: Hashable {
+        let processIdentifier: pid_t
+        let windowIdentifier: CFHashCode
+    }
+
+    private var requests: [WindowID: UUID] = [:]
+
+    mutating func begin(for window: WindowID) -> UUID {
+        let requestID = UUID()
+        requests[window] = requestID
+        return requestID
+    }
+
+    func isActive(_ requestID: UUID, for window: WindowID) -> Bool {
+        requests[window] == requestID
+    }
+
+    mutating func finish(_ requestID: UUID, for window: WindowID) {
+        guard isActive(requestID, for: window) else { return }
+        requests.removeValue(forKey: window)
+    }
+
+    mutating func cancelAll() { requests.removeAll() }
+}
+
 enum DisplayMoveHomePolicy {
     static let stabilizationDelays: [TimeInterval] = [0.06, 0.10, 0.16, 0.24, 0.36, 0.52]
 
@@ -194,6 +228,26 @@ final class DisplayService {
             throw DisplayServiceError.noDisplayForWindow
         }
         return context
+    }
+
+    func numberedDisplays() -> [NumberedDisplay] {
+        Self.numberedDisplays(names: NSScreen.screens.map(\.localizedName))
+    }
+
+    static func numberedDisplays(names: [String]) -> [NumberedDisplay] {
+        names.enumerated().map { NumberedDisplay(number: $0.offset + 1, name: $0.element) }
+    }
+
+    /// Uses the same order as Next/Previous: the menu-bar display is first.
+    func numberedDisplay(_ number: Int) -> DisplayContext? {
+        let screens = NSScreen.screens
+        guard let index = Self.displayIndex(number: number, count: screens.count) else { return nil }
+        return context(for: screens[index])
+    }
+
+    static func displayIndex(number: Int, count: Int) -> Int? {
+        guard number > 0, number <= count else { return nil }
+        return number - 1
     }
 
     func coordinateConverter() -> CoordinateConverter { CoordinateConverter() }

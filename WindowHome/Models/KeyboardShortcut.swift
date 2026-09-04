@@ -11,6 +11,15 @@ struct KeyboardShortcut: Codable, Equatable {
     static let centerAndSaveHomeDefault = KeyboardShortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | controlKey))
     static let moveToNextDisplayDefault = KeyboardShortcut(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(cmdKey | optionKey | controlKey))
     static let moveToPreviousDisplayDefault = KeyboardShortcut(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(cmdKey | optionKey | controlKey))
+    static let numberedDisplayDefaults = 1...9
+
+    static func moveAllToDisplayDefault(_ number: Int) -> KeyboardShortcut? {
+        let keys = [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5,
+                    kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8, kVK_ANSI_9]
+        guard numberedDisplayDefaults.contains(number) else { return nil }
+        return KeyboardShortcut(keyCode: UInt32(keys[number - 1]), modifiers: UInt32(cmdKey | optionKey | controlKey))
+    }
+
     static let increaseWidthDefault = KeyboardShortcut(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
     static let decreaseWidthDefault = KeyboardShortcut(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
     static let increaseHeightDefault = KeyboardShortcut(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
@@ -66,6 +75,9 @@ struct KeyboardShortcut: Codable, Equatable {
 
     private static func keyName(for keyCode: UInt32) -> String {
         let names: [UInt32: String] = [
+            UInt32(kVK_ANSI_0): "0", UInt32(kVK_ANSI_1): "1", UInt32(kVK_ANSI_2): "2", UInt32(kVK_ANSI_3): "3",
+            UInt32(kVK_ANSI_4): "4", UInt32(kVK_ANSI_5): "5", UInt32(kVK_ANSI_6): "6", UInt32(kVK_ANSI_7): "7",
+            UInt32(kVK_ANSI_8): "8", UInt32(kVK_ANSI_9): "9",
             UInt32(kVK_ANSI_A): "A", UInt32(kVK_ANSI_B): "B", UInt32(kVK_ANSI_C): "C", UInt32(kVK_ANSI_D): "D",
             UInt32(kVK_ANSI_E): "E", UInt32(kVK_ANSI_F): "F", UInt32(kVK_ANSI_G): "G", UInt32(kVK_ANSI_H): "H",
             UInt32(kVK_ANSI_I): "I", UInt32(kVK_ANSI_J): "J", UInt32(kVK_ANSI_K): "K", UInt32(kVK_ANSI_L): "L",

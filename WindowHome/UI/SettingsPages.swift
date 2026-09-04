@@ -125,6 +125,26 @@ private struct ShortcutSettingsPage: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ShortcutSettingRow(title: "Move to next display", shortcut: appState.moveToNextDisplayShortcut, onRecord: appState.updateMoveToNextDisplayShortcut, onClear: appState.clearMoveToNextDisplayShortcut)
                     ShortcutSettingRow(title: "Move to previous display", shortcut: appState.moveToPreviousDisplayShortcut, onRecord: appState.updateMoveToPreviousDisplayShortcut, onClear: appState.clearMoveToPreviousDisplayShortcut)
+                    Divider()
+                    Text("Move All Windows")
+                        .font(.headline)
+                    ForEach(appState.moveAllDisplayNumbers, id: \.self) { number in
+                        ShortcutSettingRow(
+                            title: appState.moveAllDisplayLabel(number),
+                            shortcut: appState.moveAllDisplayShortcuts[number],
+                            onRecord: { appState.updateMoveAllDisplayShortcut($0, number: number) },
+                            onClear: { appState.updateMoveAllDisplayShortcut(nil, number: number) }
+                        )
+                    }
+                    Menu("Move All Now") {
+                        ForEach(appState.connectedDisplays) { display in
+                            Button(appState.moveAllDisplayLabel(display.number)) {
+                                appState.moveAllWindows(toDisplay: display.number)
+                            }
+                        }
+                    }
+                    .disabled(!appState.permissionGranted || appState.connectedDisplays.isEmpty)
+                    SettingsFootnote("Use ⌃⌥⌘1 through ⌃⌥⌘9 for displays 1–9. Further displays can use a custom shortcut or the menu. Every shortcut can be changed or cleared. Numbering follows macOS order, with the main display first. Minimized, native full-screen, and utility windows are skipped.")
                     SettingsFootnote("Display moves wrap around. A saved Home chooses the target position while the current window size is preserved when it fits.")
                 }
                 .padding(.vertical, 2)

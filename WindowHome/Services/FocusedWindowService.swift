@@ -52,6 +52,11 @@ enum WindowManagementEligibility {
         "com.apple.quicklook.ui.helper"
     ]
 
+    static func shouldIncludeInBulkMove(role: String?, subrole: String?, minimized: Bool, fullScreen: Bool) -> Bool {
+        role == kAXWindowRole && (subrole == nil || subrole == kAXStandardWindowSubrole)
+            && !minimized && !fullScreen
+    }
+
     static func shouldManage(
         bundleIdentifier: String,
         role: String? = nil,
@@ -86,6 +91,39 @@ enum WindowManagementEligibility {
 }
 
 final class FocusedWindowService {
+    /// Read every regular window independently. The process-wide geometry fallback is
+    /// intentionally unsuitable here: it could assign one window's bounds to another.
+    func allWindowSnapshots(for application: NSRunningApplication) -> [FocusedWindowSnapshot] {
+        guard AccessibilityPermissionService.isTrusted,
+              let bundleIdentifier = application.bundleIdentifier else { return [] }
+        let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
+        guard let windows = optionalAttributeValue(kAXWindowsAttribute, from: applicationElement) as? [AXUIElement] else {
+            return []
+        }
+        var seen: [AXUIElement] = []
+        return windows.compactMap { window in
+            guard !seen.contains(where: { CFEqual($0, window) }) else { return nil }
+            seen.append(window)
+            guard isManageableWindow(window, bundleIdentifier: bundleIdentifier),
+                  WindowManagementEligibility.shouldIncludeInBulkMove(
+                    role: optionalAttributeValue(kAXRoleAttribute, from: window) as? String,
+                    subrole: optionalAttributeValue(kAXSubroleAttribute, from: window) as? String,
+                    minimized: optionalAttributeValue(kAXMinimizedAttribute, from: window) as? Bool ?? false,
+                    fullScreen: isFullScreen(window)
+                  ),
+                  let geometry = try? readGeometry(of: window),
+                  geometry.size.width > 0, geometry.size.height > 0 else { return nil }
+            return FocusedWindowSnapshot(
+                window: window,
+                windowIdentifier: CFHash(window),
+                processIdentifier: application.processIdentifier,
+                applicationName: application.localizedName ?? bundleIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                geometry: geometry
+            )
+        }
+    }
+
     func mainWindowSnapshot(for application: NSRunningApplication) -> FocusedWindowSnapshot? {
         guard AccessibilityPermissionService.isTrusted,
               application.bundleIdentifier != nil else {

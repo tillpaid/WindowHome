@@ -16,6 +16,9 @@ final class AppState: ObservableObject {
     @Published private(set) var centerAndSaveHomeShortcut: KeyboardShortcut? = KeyboardShortcut.centerAndSaveHomeDefault
     @Published private(set) var moveToNextDisplayShortcut: KeyboardShortcut? = KeyboardShortcut.moveToNextDisplayDefault
     @Published private(set) var moveToPreviousDisplayShortcut: KeyboardShortcut? = KeyboardShortcut.moveToPreviousDisplayDefault
+    @Published private(set) var moveAllDisplayShortcuts: [Int: KeyboardShortcut] = [:]
+    @Published private(set) var connectedDisplays: [NumberedDisplay] = []
+    private var displayChangeObserver: AnyCancellable?
     @Published private(set) var snapLeftShortcut: KeyboardShortcut? = KeyboardShortcut.snapLeftDefault
     @Published private(set) var snapRightShortcut: KeyboardShortcut? = KeyboardShortcut.snapRightDefault
     @Published private(set) var snapTopShortcut: KeyboardShortcut? = KeyboardShortcut.snapTopDefault
@@ -51,7 +54,7 @@ final class AppState: ObservableObject {
     private var snapFractionIndex = 0
     private var activeSnapRequestID: UUID?
     private var activeLaunchRestoreRequestID: UUID?
-    private var activeDisplayMoveRestoreRequestID: UUID?
+    private var displayMoveRequests = DisplayMoveRequests()
     private var mouseGesture: MouseGesture?
 
     var mouseSnapEnabled: Bool { mouseSnapMode != .off }
@@ -74,6 +77,12 @@ final class AppState: ObservableObject {
         centerAndSaveHomeShortcut = KeyboardShortcutPreferences.loadCenterAndSaveHome()
         moveToNextDisplayShortcut = KeyboardShortcutPreferences.loadMoveToNextDisplay()
         moveToPreviousDisplayShortcut = KeyboardShortcutPreferences.loadMoveToPreviousDisplay()
+        connectedDisplays = displayService.numberedDisplays()
+        let shortcutNumbers = Set(KeyboardShortcut.numberedDisplayDefaults)
+            .union(KeyboardShortcutPreferences.savedMoveAllDisplayNumbers())
+        moveAllDisplayShortcuts = shortcutNumbers.reduce(into: [:]) { shortcuts, number in
+            shortcuts[number] = KeyboardShortcutPreferences.loadMoveAllToDisplay(number)
+        }
         snapLeftShortcut = KeyboardShortcutPreferences.loadSnapLeft()
         snapRightShortcut = KeyboardShortcutPreferences.loadSnapRight()
         snapTopShortcut = KeyboardShortcutPreferences.loadSnapTop()
@@ -106,6 +115,13 @@ final class AppState: ObservableObject {
             hotkeyService = nil
             statusMessage = error.localizedDescription
         }
+        displayChangeObserver = NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.connectedDisplays = self.displayService.numberedDisplays()
+                }
+            }
         configureMouseWindowTracking()
         applicationLaunchObserver.start(
             onLaunch: { [weak self] application in
@@ -360,6 +376,45 @@ final class AppState: ObservableObject {
 
     func moveFocusedWindowToPreviousDisplay() {
         moveFocusedWindow(to: .previous)
+    }
+
+    func moveAllWindows(toDisplay number: Int) {
+        guard AccessibilityPermissionService.isTrusted else {
+            statusMessage = FocusedWindowError.accessibilityPermissionRequired.localizedDescription
+            return
+        }
+        guard let targetDisplay = displayService.numberedDisplay(number) else {
+            statusMessage = "Display \(number) is not connected."
+            return
+        }
+        cancelLaunchRestoreStabilization()
+        cancelDisplayMoveRestoreStabilization()
+        resetSnapCycle()
+        mouseGesture = nil
+        mouseSnapPreviewService.hide()
+        mouseSnapPreviewService.hideActivationZones()
+        var movedCount = 0
+        var failedCount = 0
+        var alreadyThereCount = 0
+        for application in NSWorkspace.shared.runningApplications
+        where application.activationPolicy == .regular && !application.isTerminated
+            && application.bundleIdentifier != Bundle.main.bundleIdentifier {
+            for snapshot in focusedWindowService.allWindowSnapshots(for: application) {
+                do {
+                    let sourceDisplay = try displayService.context(forAccessibilityGeometry: snapshot.geometry)
+                    guard sourceDisplay.fingerprint != targetDisplay.fingerprint else {
+                        alreadyThereCount += 1
+                        continue
+                    }
+                    try moveWindow(snapshot, from: sourceDisplay, to: targetDisplay, allowProcessGeometryFallback: false)
+                    movedCount += 1
+                } catch {
+                    failedCount += 1
+                }
+            }
+        }
+        statusMessage = "Moved \(movedCount) windows to Display \(number) (\(targetDisplay.name)). \(alreadyThereCount) already there."
+        if failedCount > 0 { statusMessage += " Could not move \(failedCount) windows." }
     }
 
     func resizeFocusedWindow(_ action: WindowResizeAction) {
@@ -947,6 +1002,34 @@ final class AppState: ObservableObject {
         }
     }
 
+    var moveAllDisplayNumbers: [Int] {
+        Set(KeyboardShortcut.numberedDisplayDefaults)
+            .union(connectedDisplays.map(\.number))
+            .union(KeyboardShortcutPreferences.savedMoveAllDisplayNumbers())
+            .sorted()
+    }
+
+    func moveAllDisplayLabel(_ number: Int) -> String {
+        let name = connectedDisplays.first { $0.number == number }?.name ?? "Not connected"
+        return "Display \(number) — \(name)"
+    }
+
+    func updateMoveAllDisplayShortcut(_ shortcut: KeyboardShortcut?, number: Int) {
+        guard number > 0 else { return }
+        if let shortcut, !isAvailableGlobalShortcut(shortcut, excluding: .moveAllToDisplay(number)) {
+            statusMessage = "Every WindowHome shortcut must be different."
+            return
+        }
+        let previousShortcut = moveAllDisplayShortcuts[number]
+        moveAllDisplayShortcuts[number] = shortcut
+        if configureHotkeys() {
+            KeyboardShortcutPreferences.saveMoveAllToDisplay(shortcut, number: number)
+        } else {
+            moveAllDisplayShortcuts[number] = previousShortcut
+            _ = configureHotkeys(reportFailure: false)
+        }
+    }
+
     func updateSnapLeftShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .left, kind: .snapLeft) }
     func updateSnapRightShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .right, kind: .snapRight) }
     func updateSnapTopShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .top, kind: .snapTop) }
@@ -1023,6 +1106,7 @@ final class AppState: ObservableObject {
         let previousCenterAndSaveHomeShortcut = centerAndSaveHomeShortcut
         let previousMoveToNextDisplayShortcut = moveToNextDisplayShortcut
         let previousMoveToPreviousDisplayShortcut = moveToPreviousDisplayShortcut
+        let previousMoveAllDisplayShortcuts = moveAllDisplayShortcuts
         let previousSnapShortcuts = SnapDirection.allCases.map(snapShortcut)
         let previousResizeShortcuts = WindowResizeAction.allCases.map(resizeShortcut)
         saveHomeShortcut = .saveHomeDefault
@@ -1033,6 +1117,9 @@ final class AppState: ObservableObject {
         centerAndSaveHomeShortcut = .centerAndSaveHomeDefault
         moveToNextDisplayShortcut = .moveToNextDisplayDefault
         moveToPreviousDisplayShortcut = .moveToPreviousDisplayDefault
+        for number in moveAllDisplayNumbers {
+            moveAllDisplayShortcuts[number] = .moveAllToDisplayDefault(number)
+        }
         snapLeftShortcut = .snapLeftDefault
         snapRightShortcut = .snapRightDefault
         snapTopShortcut = .snapTopDefault
@@ -1055,6 +1142,9 @@ final class AppState: ObservableObject {
             KeyboardShortcutPreferences.saveCenterAndSaveHome(centerAndSaveHomeShortcut)
             KeyboardShortcutPreferences.saveMoveToNextDisplay(moveToNextDisplayShortcut)
             KeyboardShortcutPreferences.saveMoveToPreviousDisplay(moveToPreviousDisplayShortcut)
+            for number in moveAllDisplayNumbers {
+                KeyboardShortcutPreferences.saveMoveAllToDisplay(moveAllDisplayShortcuts[number], number: number)
+            }
             KeyboardShortcutPreferences.saveSnapShortcut(snapLeftShortcut, direction: .left)
             KeyboardShortcutPreferences.saveSnapShortcut(snapRightShortcut, direction: .right)
             KeyboardShortcutPreferences.saveSnapShortcut(snapTopShortcut, direction: .top)
@@ -1077,6 +1167,7 @@ final class AppState: ObservableObject {
             centerAndSaveHomeShortcut = previousCenterAndSaveHomeShortcut
             moveToNextDisplayShortcut = previousMoveToNextDisplayShortcut
             moveToPreviousDisplayShortcut = previousMoveToPreviousDisplayShortcut
+            moveAllDisplayShortcuts = previousMoveAllDisplayShortcuts
             for (direction, shortcut) in zip(SnapDirection.allCases, previousSnapShortcuts) { setSnapShortcut(shortcut, for: direction) }
             for (action, shortcut) in zip(WindowResizeAction.allCases, previousResizeShortcuts) { setResizeShortcut(shortcut, for: action) }
             _ = configureHotkeys(reportFailure: false)
@@ -1096,6 +1187,7 @@ final class AppState: ObservableObject {
                 centerAndSaveHome: centerAndSaveHomeShortcut,
                 moveToNextDisplay: moveToNextDisplayShortcut,
                 moveToPreviousDisplay: moveToPreviousDisplayShortcut,
+                moveAllToDisplays: moveAllDisplayShortcuts,
                 snapLeft: snapLeftShortcut,
                 snapRight: snapRightShortcut,
                 snapTop: snapTopShortcut,
@@ -1132,6 +1224,9 @@ final class AppState: ObservableObject {
                 },
                 onMoveToPreviousDisplay: { [weak self] in
                     Task { @MainActor [weak self] in self?.moveFocusedWindowToPreviousDisplay() }
+                },
+                onMoveAllToDisplay: { [weak self] number in
+                    Task { @MainActor [weak self] in self?.moveAllWindows(toDisplay: number) }
                 },
                 onSnapLeft: { [weak self] in
                     Task { @MainActor [weak self] in self?.snapFocusedWindow(to: .left) }
@@ -1456,69 +1551,82 @@ final class AppState: ObservableObject {
                 return
             }
 
-            let targetGeometry: WindowGeometry
-            let status: String
-            let shouldApplyTargetSizeImmediately = DisplayMoveHomePolicy.shouldApplyFullHome(
-                automationEnabled: restoreFullHomeAfterDisplayMoveEnabled,
-                sourceIsFullScreen: focusedWindowService.isFullScreen(snapshot.window),
-                sourceIsWindowHomeSnapped: isSnapGeometry(snapshot.geometry, on: sourceDisplay),
-                sourceIsSystemTiled: displayService.isLikelySystemTiled(accessibilityGeometry: snapshot.geometry)
-            )
-            if let bundleIdentifier = snapshot.bundleIdentifier,
-               let profile = profileStore?.profile(bundleIdentifier: bundleIdentifier, displayFingerprint: targetDisplay.fingerprint) {
-                targetGeometry = displayService.constrainedAccessibilityGeometry(
-                    profile.geometry.accessibilityGeometry(for: targetDisplay.visibleFrame, converter: displayService.coordinateConverter()),
-                    on: targetDisplay,
-                    padding: CGFloat(snapPadding)
-                )
-                status = shouldApplyTargetSizeImmediately
-                    ? "Moved \(snapshot.applicationName) to the Home position on \(targetDisplay.name)."
-                    : "Moved \(snapshot.applicationName) to the Home position on \(targetDisplay.name). Press Restore Home to apply its saved size."
-            } else {
-                targetGeometry = displayService.defaultAccessibilityGeometry(from: snapshot.geometry, on: targetDisplay, padding: CGFloat(snapPadding))
-                status = "Moved \(snapshot.applicationName) to a centered position on \(targetDisplay.name). Save Home there to customize it."
-            }
+            try moveWindow(snapshot, from: sourceDisplay, to: targetDisplay, allowProcessGeometryFallback: true)
+        }
+    }
 
-            if shouldApplyTargetSizeImmediately,
-               hasHomeProfile(for: snapshot, on: targetDisplay) {
-                let writeOrder = DisplayMoveHomePolicy.geometryWriteOrder(
-                    targetSize: targetGeometry.size,
-                    sourceVisibleFrame: sourceDisplay.visibleFrame,
-                    padding: CGFloat(snapPadding)
-                )
-                try focusedWindowService.setGeometryForDisplayMove(
-                    targetGeometry,
-                    writeOrder: writeOrder,
-                    for: snapshot.window
-                )
-                let requestID = UUID()
-                activeDisplayMoveRestoreRequestID = requestID
-                keepDisplayMoveHomeStable(
-                    targetGeometry,
-                    for: snapshot,
-                    targetDisplayFingerprint: targetDisplay.fingerprint,
-                    requestID: requestID,
-                    attempt: 0
-                )
-                focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(targetGeometry.description)"
-                statusMessage = status
-                return
-            }
-
-            let transferPlan = displayService.transferPlan(
-                from: snapshot.geometry,
-                toward: targetGeometry,
+    private func moveWindow(
+        _ snapshot: FocusedWindowSnapshot,
+        from sourceDisplay: DisplayContext,
+        to targetDisplay: DisplayContext,
+        allowProcessGeometryFallback: Bool
+    ) throws {
+        let targetGeometry: WindowGeometry
+        let status: String
+        let shouldApplyTargetSizeImmediately = DisplayMoveHomePolicy.shouldApplyFullHome(
+            automationEnabled: restoreFullHomeAfterDisplayMoveEnabled,
+            sourceIsFullScreen: focusedWindowService.isFullScreen(snapshot.window),
+            sourceIsWindowHomeSnapped: isSnapGeometry(snapshot.geometry, on: sourceDisplay),
+            sourceIsSystemTiled: displayService.isLikelySystemTiled(accessibilityGeometry: snapshot.geometry)
+        )
+        if let bundleIdentifier = snapshot.bundleIdentifier,
+           let profile = profileStore?.profile(bundleIdentifier: bundleIdentifier, displayFingerprint: targetDisplay.fingerprint) {
+            targetGeometry = displayService.constrainedAccessibilityGeometry(
+                profile.geometry.accessibilityGeometry(for: targetDisplay.visibleFrame, converter: displayService.coordinateConverter()),
                 on: targetDisplay,
                 padding: CGFloat(snapPadding)
             )
-            if transferPlan.requiresResize {
-                try focusedWindowService.setGeometry(transferPlan.geometry, for: snapshot.window)
-            } else {
-                try focusedWindowService.setPosition(transferPlan.geometry.origin, for: snapshot.window)
-            }
-            focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(transferPlan.geometry.description)"
-            statusMessage = status
+            status = shouldApplyTargetSizeImmediately
+                ? "Moved \(snapshot.applicationName) to the Home position on \(targetDisplay.name)."
+                : "Moved \(snapshot.applicationName) to the Home position on \(targetDisplay.name). Press Restore Home to apply its saved size."
+        } else {
+            targetGeometry = displayService.defaultAccessibilityGeometry(from: snapshot.geometry, on: targetDisplay, padding: CGFloat(snapPadding))
+            status = "Moved \(snapshot.applicationName) to a centered position on \(targetDisplay.name). Save Home there to customize it."
         }
+
+        if shouldApplyTargetSizeImmediately,
+           hasHomeProfile(for: snapshot, on: targetDisplay) {
+            let writeOrder = DisplayMoveHomePolicy.geometryWriteOrder(
+                targetSize: targetGeometry.size,
+                sourceVisibleFrame: sourceDisplay.visibleFrame,
+                padding: CGFloat(snapPadding)
+            )
+            try focusedWindowService.setGeometryForDisplayMove(
+                targetGeometry,
+                writeOrder: writeOrder,
+                for: snapshot.window
+            )
+            let windowID = DisplayMoveRequests.WindowID(
+                processIdentifier: snapshot.processIdentifier,
+                windowIdentifier: snapshot.windowIdentifier
+            )
+            let requestID = displayMoveRequests.begin(for: windowID)
+            keepDisplayMoveHomeStable(
+                targetGeometry,
+                for: snapshot,
+                targetDisplayFingerprint: targetDisplay.fingerprint,
+                requestID: requestID,
+                allowProcessGeometryFallback: allowProcessGeometryFallback,
+                attempt: 0
+            )
+            focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(targetGeometry.description)"
+            statusMessage = status
+            return
+        }
+
+        let transferPlan = displayService.transferPlan(
+            from: snapshot.geometry,
+            toward: targetGeometry,
+            on: targetDisplay,
+            padding: CGFloat(snapPadding)
+        )
+        if transferPlan.requiresResize {
+            try focusedWindowService.setGeometry(transferPlan.geometry, for: snapshot.window)
+        } else {
+            try focusedWindowService.setPosition(transferPlan.geometry.origin, for: snapshot.window)
+        }
+        focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(transferPlan.geometry.description)"
+        statusMessage = status
     }
 
     private func applySnapGeometry(_ geometry: WindowGeometry, direction: SnapDirection, on display: DisplayContext, to snapshot: FocusedWindowSnapshot) throws {
@@ -1616,29 +1724,34 @@ final class AppState: ObservableObject {
         for snapshot: FocusedWindowSnapshot,
         targetDisplayFingerprint: DisplayFingerprint,
         requestID: UUID,
+        allowProcessGeometryFallback: Bool,
         attempt: Int
     ) {
-        // Electron apps can finish a fullscreen/maximized layout transition after accepting the
-        // initial AX writes. Keep the explicit display-move Home stable for a short bounded window.
+        // Browsers can finish a fullscreen/maximized layout transition after accepting the
+        // initial AX writes. Each explicitly moved window keeps its own bounded request.
+        let windowID = DisplayMoveRequests.WindowID(
+            processIdentifier: snapshot.processIdentifier,
+            windowIdentifier: snapshot.windowIdentifier
+        )
         let delays = DisplayMoveHomePolicy.stabilizationDelays
         guard attempt < delays.count else {
-            if activeDisplayMoveRestoreRequestID == requestID {
-                activeDisplayMoveRestoreRequestID = nil
-            }
+            displayMoveRequests.finish(requestID, for: windowID)
             return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
-            guard let self, self.activeDisplayMoveRestoreRequestID == requestID else { return }
+            guard let self, self.displayMoveRequests.isActive(requestID, for: windowID) else { return }
             guard let actual = try? self.focusedWindowService.readGeometry(
                 of: snapshot.window,
-                fallbackProcessIdentifier: snapshot.processIdentifier
+                // A process-wide fallback cannot distinguish multiple windows of the same app.
+                fallbackProcessIdentifier: allowProcessGeometryFallback ? snapshot.processIdentifier : nil
             ) else {
                 self.keepDisplayMoveHomeStable(
                     geometry,
                     for: snapshot,
                     targetDisplayFingerprint: targetDisplayFingerprint,
                     requestID: requestID,
+                    allowProcessGeometryFallback: allowProcessGeometryFallback,
                     attempt: attempt + 1
                 )
                 return
@@ -1650,7 +1763,7 @@ final class AppState: ObservableObject {
                 isOnTargetDisplay: currentDisplay?.fingerprint == targetDisplayFingerprint
             )
             guard decision != .stop else {
-                self.cancelDisplayMoveRestoreStabilization()
+                self.displayMoveRequests.finish(requestID, for: windowID)
                 return
             }
 
@@ -1662,13 +1775,14 @@ final class AppState: ObservableObject {
                 for: snapshot,
                 targetDisplayFingerprint: targetDisplayFingerprint,
                 requestID: requestID,
+                allowProcessGeometryFallback: allowProcessGeometryFallback,
                 attempt: attempt + 1
             )
         }
     }
 
     private func cancelDisplayMoveRestoreStabilization() {
-        activeDisplayMoveRestoreRequestID = nil
+        displayMoveRequests.cancelAll()
     }
 
     private func resetSnapCycle() {
@@ -1739,12 +1853,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    private enum GlobalShortcutKind {
+    private enum GlobalShortcutKind: Equatable {
+        case moveAllToDisplay(Int)
         case saveHome, restoreHome, undoHome, redoHome, restoreAll, centerAndSaveHome, moveToNextDisplay, moveToPreviousDisplay, snapLeft, snapRight, snapTop, snapBottom, snapFullScreen, snapTopLeft, snapTopRight, snapBottomLeft, snapBottomRight, increaseWidth, decreaseWidth, increaseHeight, decreaseHeight
     }
 
     private func isAvailableGlobalShortcut(_ shortcut: KeyboardShortcut, excluding kind: GlobalShortcutKind) -> Bool {
-        let shortcuts: [(GlobalShortcutKind, KeyboardShortcut?)] = [
+        var shortcuts: [(GlobalShortcutKind, KeyboardShortcut?)] = [
             (.saveHome, saveHomeShortcut),
             (.restoreHome, restoreHomeShortcut),
             (.undoHome, undoHomeShortcut),
@@ -1767,6 +1882,7 @@ final class AppState: ObservableObject {
             (.increaseHeight, increaseHeightShortcut),
             (.decreaseHeight, decreaseHeightShortcut)
         ]
+        shortcuts += moveAllDisplayShortcuts.map { (.moveAllToDisplay($0.key), $0.value) }
         return shortcuts.allSatisfy { $0.0 == kind || $0.1 != shortcut }
     }
 

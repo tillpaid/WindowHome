@@ -31,6 +31,7 @@ final class HotkeyService {
     private static let centerAndSaveHomeID: UInt32 = 15
     private static let moveToNextDisplayID: UInt32 = 4
     private static let moveToPreviousDisplayID: UInt32 = 5
+    private static let moveAllToDisplayBaseID: UInt32 = 100
     private static let snapLeftID: UInt32 = 6
     private static let snapRightID: UInt32 = 7
     private static let snapTopID: UInt32 = 8
@@ -51,6 +52,7 @@ final class HotkeyService {
     private var centerAndSaveHomeAction: (() -> Void)?
     private var moveToNextDisplayAction: (() -> Void)?
     private var moveToPreviousDisplayAction: (() -> Void)?
+    private var moveAllDisplayActions: [UInt32: () -> Void] = [:]
     private var snapActions: [UInt32: () -> Void] = [:]
     private var resizeActions: [UInt32: () -> Void] = [:]
     private var activeResizeHotkeyID: UInt32?
@@ -79,7 +81,7 @@ final class HotkeyService {
         if let eventHandler { RemoveEventHandler(eventHandler) }
     }
 
-    func register(saveHome: KeyboardShortcut?, restoreHome: KeyboardShortcut?, undoHome: KeyboardShortcut?, redoHome: KeyboardShortcut?, restoreAll: KeyboardShortcut?, centerAndSaveHome: KeyboardShortcut?, moveToNextDisplay: KeyboardShortcut?, moveToPreviousDisplay: KeyboardShortcut?, snapLeft: KeyboardShortcut?, snapRight: KeyboardShortcut?, snapTop: KeyboardShortcut?, snapBottom: KeyboardShortcut?, snapFullScreen: KeyboardShortcut?, snapTopLeft: KeyboardShortcut?, snapTopRight: KeyboardShortcut?, snapBottomLeft: KeyboardShortcut?, snapBottomRight: KeyboardShortcut?, increaseWidth: KeyboardShortcut?, decreaseWidth: KeyboardShortcut?, increaseHeight: KeyboardShortcut?, decreaseHeight: KeyboardShortcut?, onSaveHome: @escaping () -> Void, onRestoreHome: @escaping () -> Void, onUndoHome: @escaping () -> Void, onRedoHome: @escaping () -> Void, onRestoreAll: @escaping () -> Void, onCenterAndSaveHome: @escaping () -> Void, onMoveToNextDisplay: @escaping () -> Void, onMoveToPreviousDisplay: @escaping () -> Void, onSnapLeft: @escaping () -> Void, onSnapRight: @escaping () -> Void, onSnapTop: @escaping () -> Void, onSnapBottom: @escaping () -> Void, onSnapFullScreen: @escaping () -> Void, onSnapTopLeft: @escaping () -> Void, onSnapTopRight: @escaping () -> Void, onSnapBottomLeft: @escaping () -> Void, onSnapBottomRight: @escaping () -> Void, onIncreaseWidth: @escaping () -> Void, onDecreaseWidth: @escaping () -> Void, onIncreaseHeight: @escaping () -> Void, onDecreaseHeight: @escaping () -> Void) throws {
+    func register(saveHome: KeyboardShortcut?, restoreHome: KeyboardShortcut?, undoHome: KeyboardShortcut?, redoHome: KeyboardShortcut?, restoreAll: KeyboardShortcut?, centerAndSaveHome: KeyboardShortcut?, moveToNextDisplay: KeyboardShortcut?, moveToPreviousDisplay: KeyboardShortcut?, moveAllToDisplays: [Int: KeyboardShortcut], snapLeft: KeyboardShortcut?, snapRight: KeyboardShortcut?, snapTop: KeyboardShortcut?, snapBottom: KeyboardShortcut?, snapFullScreen: KeyboardShortcut?, snapTopLeft: KeyboardShortcut?, snapTopRight: KeyboardShortcut?, snapBottomLeft: KeyboardShortcut?, snapBottomRight: KeyboardShortcut?, increaseWidth: KeyboardShortcut?, decreaseWidth: KeyboardShortcut?, increaseHeight: KeyboardShortcut?, decreaseHeight: KeyboardShortcut?, onSaveHome: @escaping () -> Void, onRestoreHome: @escaping () -> Void, onUndoHome: @escaping () -> Void, onRedoHome: @escaping () -> Void, onRestoreAll: @escaping () -> Void, onCenterAndSaveHome: @escaping () -> Void, onMoveToNextDisplay: @escaping () -> Void, onMoveToPreviousDisplay: @escaping () -> Void, onMoveAllToDisplay: @escaping (Int) -> Void, onSnapLeft: @escaping () -> Void, onSnapRight: @escaping () -> Void, onSnapTop: @escaping () -> Void, onSnapBottom: @escaping () -> Void, onSnapFullScreen: @escaping () -> Void, onSnapTopLeft: @escaping () -> Void, onSnapTopRight: @escaping () -> Void, onSnapBottomLeft: @escaping () -> Void, onSnapBottomRight: @escaping () -> Void, onIncreaseWidth: @escaping () -> Void, onDecreaseWidth: @escaping () -> Void, onIncreaseHeight: @escaping () -> Void, onDecreaseHeight: @escaping () -> Void) throws {
         unregisterAll()
         saveHomeAction = onSaveHome
         restoreHomeAction = onRestoreHome
@@ -89,6 +91,7 @@ final class HotkeyService {
         centerAndSaveHomeAction = onCenterAndSaveHome
         moveToNextDisplayAction = onMoveToNextDisplay
         moveToPreviousDisplayAction = onMoveToPreviousDisplay
+        moveAllDisplayActions.removeAll()
         snapActions = [Self.snapLeftID: onSnapLeft, Self.snapRightID: onSnapRight, Self.snapTopID: onSnapTop, Self.snapBottomID: onSnapBottom, Self.snapFullScreenID: onSnapFullScreen, Self.snapTopLeftID: onSnapTopLeft, Self.snapTopRightID: onSnapTopRight, Self.snapBottomLeftID: onSnapBottomLeft, Self.snapBottomRightID: onSnapBottomRight]
         resizeActions = [
             Self.increaseWidthID: onIncreaseWidth,
@@ -105,6 +108,11 @@ final class HotkeyService {
             try register(centerAndSaveHome, id: Self.centerAndSaveHomeID)
             try register(moveToNextDisplay, id: Self.moveToNextDisplayID)
             try register(moveToPreviousDisplay, id: Self.moveToPreviousDisplayID)
+            for (offset, number) in moveAllToDisplays.keys.sorted().enumerated() {
+                let id = Self.moveAllToDisplayBaseID + UInt32(offset)
+                moveAllDisplayActions[id] = { onMoveAllToDisplay(number) }
+                try register(moveAllToDisplays[number], id: id)
+            }
             try register(snapLeft, id: Self.snapLeftID)
             try register(snapRight, id: Self.snapRightID)
             try register(snapTop, id: Self.snapTopID)
@@ -172,7 +180,9 @@ final class HotkeyService {
             guard activeResizeHotkeyID != hotkeyID.id else { return noErr }
             resizeActions[hotkeyID.id]?()
             beginResizeRepeat(for: hotkeyID.id)
-        default: return OSStatus(eventNotHandledErr)
+        default:
+            guard let action = moveAllDisplayActions[hotkeyID.id] else { return OSStatus(eventNotHandledErr) }
+            action()
         }
         return noErr
     }
