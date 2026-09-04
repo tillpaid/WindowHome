@@ -48,6 +48,28 @@ enum KeyboardShortcutPreferences {
     static func loadCenterAndSaveHome() -> KeyboardShortcut? { loadShortcut(forKey: centerAndSaveHomeKey, defaultShortcut: .centerAndSaveHomeDefault) }
     static func loadMoveToNextDisplay() -> KeyboardShortcut? { loadShortcut(forKey: moveToNextDisplayKey, defaultShortcut: .moveToNextDisplayDefault) }
     static func loadMoveToPreviousDisplay() -> KeyboardShortcut? { loadShortcut(forKey: moveToPreviousDisplayKey, defaultShortcut: .moveToPreviousDisplayDefault) }
+    static func loadMoveAllToDisplay(_ number: Int, defaults: UserDefaults = .standard) -> KeyboardShortcut? {
+        guard number > 0 else { return nil }
+        return loadShortcut(forKey: "moveAllToDisplay\(number)Shortcut", defaultShortcut: .moveAllToDisplayDefault(number), defaults: defaults)
+    }
+
+    static func saveMoveAllToDisplay(_ shortcut: KeyboardShortcut?, number: Int, defaults: UserDefaults = .standard) {
+        guard number > 0 else { return }
+        saveShortcut(shortcut, forKey: "moveAllToDisplay\(number)Shortcut", defaults: defaults)
+    }
+
+    /// Includes disconnected displays so Reset All also resets their saved bindings.
+    static func savedMoveAllDisplayNumbers(defaults: UserDefaults = .standard) -> Set<Int> {
+        Set(defaults.dictionaryRepresentation().keys.compactMap { key in
+            let prefix = "moveAllToDisplay"
+            guard key.hasPrefix(prefix) else { return nil }
+            let suffix = key.hasSuffix("ShortcutCleared") ? "ShortcutCleared" : "Shortcut"
+            guard key.hasSuffix(suffix),
+                  let number = Int(key.dropFirst(prefix.count).dropLast(suffix.count)), number > 0 else { return nil }
+            return number
+        })
+    }
+
     static func loadSnapLeft() -> KeyboardShortcut? { loadShortcut(forKey: snapLeftKey, defaultShortcut: .snapLeftDefault) }
     static func loadSnapRight() -> KeyboardShortcut? { loadShortcut(forKey: snapRightKey, defaultShortcut: .snapRightDefault) }
     static func loadSnapTop() -> KeyboardShortcut? { loadShortcut(forKey: snapTopKey, defaultShortcut: .snapTopDefault) }
@@ -164,26 +186,26 @@ enum KeyboardShortcutPreferences {
         UserDefaults.standard.set(enabled, forKey: showMouseSnapAreasKey)
     }
 
-    private static func load(forKey key: String) -> KeyboardShortcut? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+    private static func load(forKey key: String, defaults: UserDefaults) -> KeyboardShortcut? {
+        guard let data = defaults.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(KeyboardShortcut.self, from: data)
     }
 
-    private static func loadShortcut(forKey key: String, defaultShortcut: KeyboardShortcut) -> KeyboardShortcut? {
-        if UserDefaults.standard.bool(forKey: clearedKey(for: key)) {
+    private static func loadShortcut(forKey key: String, defaultShortcut: KeyboardShortcut?, defaults: UserDefaults = .standard) -> KeyboardShortcut? {
+        if defaults.bool(forKey: clearedKey(for: key)) {
             return nil
         }
-        return load(forKey: key) ?? defaultShortcut
+        return load(forKey: key, defaults: defaults) ?? defaultShortcut
     }
 
-    private static func saveShortcut(_ shortcut: KeyboardShortcut?, forKey key: String) {
+    private static func saveShortcut(_ shortcut: KeyboardShortcut?, forKey key: String, defaults: UserDefaults = .standard) {
         let cleared = clearedKey(for: key)
         if let shortcut {
-            UserDefaults.standard.set(try? JSONEncoder().encode(shortcut), forKey: key)
-            UserDefaults.standard.set(false, forKey: cleared)
+            defaults.set(try? JSONEncoder().encode(shortcut), forKey: key)
+            defaults.set(false, forKey: cleared)
         } else {
-            UserDefaults.standard.removeObject(forKey: key)
-            UserDefaults.standard.set(true, forKey: cleared)
+            defaults.removeObject(forKey: key)
+            defaults.set(true, forKey: cleared)
         }
     }
 }

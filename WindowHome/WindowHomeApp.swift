@@ -24,6 +24,14 @@ struct WindowHomeApp: App {
                 .disabled(!appState.permissionGranted)
             Button("Restore All Windows") { appState.restoreAllHomePositions() }
                 .disabled(!appState.permissionGranted)
+            Menu("Move All to Display") {
+                ForEach(appState.connectedDisplays) { display in
+                    Button(appState.moveAllDisplayLabel(display.number)) {
+                        appState.moveAllWindows(toDisplay: display.number)
+                    }
+                }
+            }
+            .disabled(!appState.permissionGranted || appState.connectedDisplays.isEmpty)
             Divider()
             Text(appState.permissionGranted ? "Accessibility enabled" : "Accessibility required")
                 .foregroundStyle(appState.permissionGranted ? .green : .orange)
