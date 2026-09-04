@@ -435,6 +435,93 @@ struct WindowHomeTests {
         #expect(plan.geometry.origin == desiredTarget.origin)
     }
 
+    @Test func fullScreenSnapPreservationAdaptsToBothDisplaySizesAndPadding() throws {
+        let lower = CGRect(x: 0, y: 30, width: 1440, height: 850)
+        let upper = CGRect(x: -120, y: 960, width: 2560, height: 1400)
+        let converter = CoordinateConverter(desktopFrame: lower.union(upper), accessibilityReferenceY: 900)
+        for (source, target) in [(lower, upper), (upper, lower)] {
+            for padding: CGFloat in [0, 12, 80] {
+                let sourceSnap = SnapLayout.accessibilityGeometry(
+                    direction: .fullScreen, fraction: 0.5, padding: padding,
+                    visibleFrame: source, converter: converter
+                )
+                let moved = try #require(DisplayMoveFullScreenPolicy.targetGeometry(
+                    enabled: true, sourceIsNativeFullScreen: false, sourceGeometry: sourceSnap,
+                    sourceVisibleFrame: source, targetVisibleFrame: target,
+                    padding: padding, converter: converter
+                ))
+                #expect(moved == SnapLayout.accessibilityGeometry(
+                    direction: .fullScreen, fraction: 0.5, padding: padding,
+                    visibleFrame: target, converter: converter
+                ))
+                #expect(moved.size != sourceSnap.size)
+                // The moved Full Screen Snap is recognized again on a return trip.
+                #expect(DisplayMoveFullScreenPolicy.targetGeometry(
+                    enabled: true, sourceIsNativeFullScreen: false, sourceGeometry: moved,
+                    sourceVisibleFrame: target, targetVisibleFrame: source,
+                    padding: padding, converter: converter
+                ) == sourceSnap)
+            }
+        }
+    }
+
+    @Test func fullScreenPreservationLeavesAllSideAndCornerSnapsOnHomePath() {
+        let source = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let target = CGRect(x: 1920, y: 0, width: 1440, height: 900)
+        let converter = CoordinateConverter(desktopFrame: source.union(target))
+        for direction in SnapDirection.allCases where direction != .fullScreen {
+            for fraction in SnapLayout.fractions {
+                let geometry = SnapLayout.accessibilityGeometry(
+                    direction: direction, fraction: fraction, padding: 12,
+                    visibleFrame: source, converter: converter
+                )
+                #expect(DisplayMoveFullScreenPolicy.targetGeometry(
+                    enabled: true, sourceIsNativeFullScreen: false, sourceGeometry: geometry,
+                    sourceVisibleFrame: source, targetVisibleFrame: target,
+                    padding: 12, converter: converter
+                ) == nil)
+            }
+        }
+    }
+
+    @Test func fullScreenPreservationRequiresOptInAndExcludesNativeFullScreenAndRegularWindows() {
+        let source = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let target = CGRect(x: 1920, y: 0, width: 1440, height: 900)
+        let converter = CoordinateConverter(desktopFrame: source.union(target))
+        let snap = SnapLayout.accessibilityGeometry(
+            direction: .fullScreen, fraction: 0.5, padding: 12,
+            visibleFrame: source, converter: converter
+        )
+        #expect(DisplayMoveFullScreenPolicy.targetGeometry(
+            enabled: false, sourceIsNativeFullScreen: false, sourceGeometry: snap,
+            sourceVisibleFrame: source, targetVisibleFrame: target,
+            padding: 12, converter: converter
+        ) == nil)
+        #expect(DisplayMoveFullScreenPolicy.targetGeometry(
+            enabled: true, sourceIsNativeFullScreen: true, sourceGeometry: snap,
+            sourceVisibleFrame: source, targetVisibleFrame: target,
+            padding: 12, converter: converter
+        ) == nil)
+        #expect(DisplayMoveFullScreenPolicy.targetGeometry(
+            enabled: true, sourceIsNativeFullScreen: false,
+            sourceGeometry: WindowGeometry(origin: CGPoint(x: 100, y: 100), size: CGSize(width: 900, height: 700)),
+            sourceVisibleFrame: source, targetVisibleFrame: target,
+            padding: 12, converter: converter
+        ) == nil)
+    }
+
+    @Test func fullScreenPreservationPreferenceDefaultsOffAndPersists() throws {
+        let suiteName = "WindowHomeTests.preserveFullScreen.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        #expect(!KeyboardShortcutPreferences.loadPreserveFullScreenSnapAfterDisplayMove(defaults: defaults))
+        KeyboardShortcutPreferences.savePreserveFullScreenSnapAfterDisplayMove(true, defaults: defaults)
+        let reloaded = try #require(UserDefaults(suiteName: suiteName))
+        #expect(KeyboardShortcutPreferences.loadPreserveFullScreenSnapAfterDisplayMove(defaults: reloaded))
+        KeyboardShortcutPreferences.savePreserveFullScreenSnapAfterDisplayMove(false, defaults: defaults)
+        #expect(!KeyboardShortcutPreferences.loadPreserveFullScreenSnapAfterDisplayMove(defaults: reloaded))
+    }
+
     @Test func displayMoveAutomationControlsFullHomeRestoreForRegularWindows() {
         #expect(DisplayMoveHomePolicy.shouldApplyFullHome(
             automationEnabled: true,

@@ -304,7 +304,16 @@ private struct AutomationSettingsPage: View {
                             set: appState.setRestoreFullHomeAfterDisplayMoveEnabled
                         )
                     )
-                    SettingsFootnote("Applies to WindowHome's Move to Next Display and Move to Previous Display shortcuts. When disabled, regular windows preserve their current size; snapped, tiled, and full-screen-like windows still return to the full destination Home.")
+                    SettingsFootnote("Applies to Next/Previous Display and Move All to Display. When disabled, regular windows preserve their current size; snapped and tiled windows still return to the full destination Home unless Full Screen Snap is kept below.")
+                    Divider()
+                    Toggle(
+                        "Keep Full Screen Snap when moving between displays",
+                        isOn: Binding(
+                            get: { appState.preserveFullScreenSnapAfterDisplayMoveEnabled },
+                            set: appState.setPreserveFullScreenSnapAfterDisplayMoveEnabled
+                        )
+                    )
+                    SettingsFootnote("A window in Full Screen Snap fills the destination display with your Snap padding, instead of restoring Home. Applies to Next/Previous Display and Move All. Saved Homes stay unchanged. Side and corner snaps keep their usual behavior; native macOS full screen is unaffected.")
                 }
                 .padding(.vertical, 2)
             }

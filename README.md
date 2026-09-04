@@ -14,6 +14,7 @@ It also includes practical window-management tools—keyboard and mouse snapping
 - Move windows between displays while preserving their size when it fits.
 - Move all regular windows to any connected display from the menu bar or with optional shortcuts.
 - Apply the destination display's full Home after a WindowHome display move by default, with an option to preserve the current size for regular windows.
+- Optionally keep Full Screen Snap when moving between displays without changing saved Homes.
 - Snap by keyboard to full screen, halves, or quarters.
 - Repeat a side or corner shortcut to cycle through 50%, 66%, and 33% widths.
 - Resize symmetrically from the window center with configurable steps, including aspect-ratio-locked video windows such as FaceTime.
@@ -95,6 +96,7 @@ Saved window profiles are stored as JSON at:
 - A Home belongs to an application, display, and effective resolution—not to an individual window or browser tab.
 - **Restore All** restores one main window per running app so multiple windows do not overlap.
 - **Move All to Display** moves every accessible regular window of each running app, including multiple windows per app. Displays are numbered in macOS order, with the main display first. The menu lists all connected displays by number and name and updates when displays change. Displays 1–9 have default numeric shortcuts; higher numbers support custom shortcuts and menu actions. Shortcut settings retain disconnected display bindings, and each shortcut can be changed or cleared. An unavailable target leaves windows unchanged. Windows already on the target, minimized windows, native full-screen windows, utility panels, and WindowHome itself are skipped. Windows without readable individual geometry are skipped.
+- In **Settings → Automation → Display Move**, enable **Keep Full Screen Snap when moving between displays** to keep a full-screen-snapped window filling the destination display with the configured Snap padding. This option is off by default, takes precedence over full Home restore, and works with Next/Previous Display and Move All even when no destination Home exists. Side/corner snaps and native macOS full screen keep their existing behavior. Detection matches the current Full Screen Snap geometry; a manually arranged identical frame is treated the same way.
 - Bulk moves use the destination Home and display-move size preference, or center windows when no Home exists, respecting Snap padding. Multiple windows from the same app may overlap because Homes belong to apps. Saved Homes stay unchanged.
 - App-launch restore—including newly opened Finder windows—keeps a window on its current display.
 - Finder Quick Look previews, Get Info windows, and utility panels are excluded from Home, Snap, resize, and automatic restore actions.
