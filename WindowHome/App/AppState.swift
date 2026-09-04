@@ -35,6 +35,7 @@ final class AppState: ObservableObject {
     @Published private(set) var snapPadding: Double = 12
     @Published private(set) var resizeStep: Double = 10
     @Published private(set) var restoreFullHomeAfterDisplayMoveEnabled = true
+    @Published private(set) var preserveFullScreenSnapAfterDisplayMoveEnabled = false
     @Published private(set) var automaticSaveAfterMouseMoveEnabled = false
     @Published private(set) var mouseSnapMode: MouseSnapMode = .off
     @Published private(set) var showMouseSnapAreas = true
@@ -99,6 +100,7 @@ final class AppState: ObservableObject {
         snapPadding = KeyboardShortcutPreferences.snapPadding
         resizeStep = KeyboardShortcutPreferences.resizeStep
         restoreFullHomeAfterDisplayMoveEnabled = KeyboardShortcutPreferences.restoreFullHomeAfterDisplayMoveEnabled
+        preserveFullScreenSnapAfterDisplayMoveEnabled = KeyboardShortcutPreferences.loadPreserveFullScreenSnapAfterDisplayMove()
         automaticSaveAfterMouseMoveEnabled = KeyboardShortcutPreferences.automaticSaveAfterMouseMoveEnabled
         mouseSnapMode = KeyboardShortcutPreferences.mouseSnapMode
         showMouseSnapAreas = KeyboardShortcutPreferences.showMouseSnapAreas
@@ -763,6 +765,15 @@ final class AppState: ObservableObject {
         statusMessage = enabled
             ? "WindowHome will apply the full saved Home after moving a window to another display."
             : "WindowHome will preserve the current window size when moving it to another display."
+    }
+
+    func setPreserveFullScreenSnapAfterDisplayMoveEnabled(_ enabled: Bool) {
+        preserveFullScreenSnapAfterDisplayMoveEnabled = enabled
+        KeyboardShortcutPreferences.savePreserveFullScreenSnapAfterDisplayMove(enabled)
+        cancelDisplayMoveRestoreStabilization()
+        statusMessage = enabled
+            ? "Full Screen Snap will stay full screen after a display move. Saved Homes stay unchanged."
+            : "Full Screen Snap will follow the usual Home behavior after a display move."
     }
 
     func setAutomaticSaveAfterMouseMoveEnabled(_ enabled: Bool) {
@@ -1561,15 +1572,28 @@ final class AppState: ObservableObject {
         to targetDisplay: DisplayContext,
         allowProcessGeometryFallback: Bool
     ) throws {
+        let sourceIsNativeFullScreen = focusedWindowService.isFullScreen(snapshot.window)
+        let fullScreenTarget = DisplayMoveFullScreenPolicy.targetGeometry(
+            enabled: preserveFullScreenSnapAfterDisplayMoveEnabled,
+            sourceIsNativeFullScreen: sourceIsNativeFullScreen,
+            sourceGeometry: snapshot.geometry,
+            sourceVisibleFrame: sourceDisplay.visibleFrame,
+            targetVisibleFrame: targetDisplay.visibleFrame,
+            padding: CGFloat(snapPadding),
+            converter: displayService.coordinateConverter()
+        )
         let targetGeometry: WindowGeometry
         let status: String
         let shouldApplyTargetSizeImmediately = DisplayMoveHomePolicy.shouldApplyFullHome(
             automationEnabled: restoreFullHomeAfterDisplayMoveEnabled,
-            sourceIsFullScreen: focusedWindowService.isFullScreen(snapshot.window),
+            sourceIsFullScreen: sourceIsNativeFullScreen,
             sourceIsWindowHomeSnapped: isSnapGeometry(snapshot.geometry, on: sourceDisplay),
             sourceIsSystemTiled: displayService.isLikelySystemTiled(accessibilityGeometry: snapshot.geometry)
         )
-        if let bundleIdentifier = snapshot.bundleIdentifier,
+        if let fullScreenTarget {
+            targetGeometry = fullScreenTarget
+            status = "Moved \(snapshot.applicationName) to Full Screen Snap on \(targetDisplay.name). Saved Home unchanged."
+        } else if let bundleIdentifier = snapshot.bundleIdentifier,
            let profile = profileStore?.profile(bundleIdentifier: bundleIdentifier, displayFingerprint: targetDisplay.fingerprint) {
             targetGeometry = displayService.constrainedAccessibilityGeometry(
                 profile.geometry.accessibilityGeometry(for: targetDisplay.visibleFrame, converter: displayService.coordinateConverter()),
@@ -1584,8 +1608,7 @@ final class AppState: ObservableObject {
             status = "Moved \(snapshot.applicationName) to a centered position on \(targetDisplay.name). Save Home there to customize it."
         }
 
-        if shouldApplyTargetSizeImmediately,
-           hasHomeProfile(for: snapshot, on: targetDisplay) {
+        if fullScreenTarget != nil || (shouldApplyTargetSizeImmediately && hasHomeProfile(for: snapshot, on: targetDisplay)) {
             let writeOrder = DisplayMoveHomePolicy.geometryWriteOrder(
                 targetSize: targetGeometry.size,
                 sourceVisibleFrame: sourceDisplay.visibleFrame,
@@ -1601,7 +1624,7 @@ final class AppState: ObservableObject {
                 windowIdentifier: snapshot.windowIdentifier
             )
             let requestID = displayMoveRequests.begin(for: windowID)
-            keepDisplayMoveHomeStable(
+            keepDisplayMoveGeometryStable(
                 targetGeometry,
                 for: snapshot,
                 targetDisplayFingerprint: targetDisplay.fingerprint,
@@ -1719,7 +1742,7 @@ final class AppState: ObservableObject {
         activeLaunchRestoreRequestID = nil
     }
 
-    private func keepDisplayMoveHomeStable(
+    private func keepDisplayMoveGeometryStable(
         _ geometry: WindowGeometry,
         for snapshot: FocusedWindowSnapshot,
         targetDisplayFingerprint: DisplayFingerprint,
@@ -1746,7 +1769,7 @@ final class AppState: ObservableObject {
                 // A process-wide fallback cannot distinguish multiple windows of the same app.
                 fallbackProcessIdentifier: allowProcessGeometryFallback ? snapshot.processIdentifier : nil
             ) else {
-                self.keepDisplayMoveHomeStable(
+                self.keepDisplayMoveGeometryStable(
                     geometry,
                     for: snapshot,
                     targetDisplayFingerprint: targetDisplayFingerprint,
@@ -1770,7 +1793,7 @@ final class AppState: ObservableObject {
             if decision == .reapplyAndVerifyLater {
                 try? self.focusedWindowService.setGeometry(geometry, for: snapshot.window)
             }
-            self.keepDisplayMoveHomeStable(
+            self.keepDisplayMoveGeometryStable(
                 geometry,
                 for: snapshot,
                 targetDisplayFingerprint: targetDisplayFingerprint,

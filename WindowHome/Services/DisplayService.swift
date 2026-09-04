@@ -164,6 +164,34 @@ struct DisplayMoveRequests {
     mutating func cancelAll() { requests.removeAll() }
 }
 
+enum DisplayMoveFullScreenPolicy {
+    /// Match only Full Screen Snap; side/corner layouts continue through the Home move path.
+    static func targetGeometry(
+        enabled: Bool,
+        sourceIsNativeFullScreen: Bool,
+        sourceGeometry: WindowGeometry,
+        sourceVisibleFrame: CGRect,
+        targetVisibleFrame: CGRect,
+        padding: CGFloat,
+        converter: CoordinateConverter
+    ) -> WindowGeometry? {
+        guard enabled, !sourceIsNativeFullScreen else { return nil }
+        let sourceSnap = SnapLayout.accessibilityGeometry(
+            direction: .fullScreen, fraction: 0.5, padding: padding,
+            visibleFrame: sourceVisibleFrame, converter: converter
+        )
+        let tolerance: CGFloat = 8
+        guard abs(sourceGeometry.origin.x - sourceSnap.origin.x) <= tolerance,
+              abs(sourceGeometry.origin.y - sourceSnap.origin.y) <= tolerance,
+              abs(sourceGeometry.size.width - sourceSnap.size.width) <= tolerance,
+              abs(sourceGeometry.size.height - sourceSnap.size.height) <= tolerance else { return nil }
+        return SnapLayout.accessibilityGeometry(
+            direction: .fullScreen, fraction: 0.5, padding: padding,
+            visibleFrame: targetVisibleFrame, converter: converter
+        )
+    }
+}
+
 enum DisplayMoveHomePolicy {
     static let stabilizationDelays: [TimeInterval] = [0.06, 0.10, 0.16, 0.24, 0.36, 0.52]
 

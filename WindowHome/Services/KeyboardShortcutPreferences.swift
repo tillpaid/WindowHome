@@ -32,6 +32,7 @@ enum KeyboardShortcutPreferences {
     private static let decreaseHeightKey = "decreaseHeightShortcut"
     private static let snapPaddingKey = "snapPadding"
     private static let resizeStepKey = "resizeStep"
+    private static let preserveFullScreenSnapAfterDisplayMoveKey = "preserveFullScreenSnapAfterDisplayMoveEnabled"
     private static let restoreFullHomeAfterDisplayMoveKey = "restoreFullHomeAfterDisplayMoveEnabled"
     private static let automaticSaveAfterMouseMoveEnabledKey = "automaticSaveAfterMouseMoveEnabled"
     private static let mouseSnapEnabledKey = "mouseSnapEnabled"
@@ -85,6 +86,14 @@ enum KeyboardShortcutPreferences {
     static func loadDecreaseHeight() -> KeyboardShortcut? { loadShortcut(forKey: decreaseHeightKey, defaultShortcut: .decreaseHeightDefault) }
     static var snapPadding: Double { UserDefaults.standard.object(forKey: snapPaddingKey) as? Double ?? 12 }
     static var resizeStep: Double { UserDefaults.standard.object(forKey: resizeStepKey) as? Double ?? 10 }
+    static func loadPreserveFullScreenSnapAfterDisplayMove(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: preserveFullScreenSnapAfterDisplayMoveKey)
+    }
+
+    static func savePreserveFullScreenSnapAfterDisplayMove(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: preserveFullScreenSnapAfterDisplayMoveKey)
+    }
+
     static var restoreFullHomeAfterDisplayMoveEnabled: Bool {
         UserDefaults.standard.object(forKey: restoreFullHomeAfterDisplayMoveKey) as? Bool ?? true
     }
