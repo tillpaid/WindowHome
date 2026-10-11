@@ -21,6 +21,7 @@ It also includes practical window-management tools—keyboard and mouse snapping
 - Optionally snap with the mouse, with visible activation areas and target previews.
 - Restore saved geometry after an app launches and whenever a new Finder browser window opens, while leaving Finder Quick Look previews, Get Info windows, and utility panels untouched.
 - Configure or disable every global shortcut from Settings.
+- Start automatically at login by default, with a toggle in Settings → Automation → Startup.
 
 ## Install
 
@@ -60,6 +61,8 @@ In Xcode:
 Full-screen, maximized, snapped, and standard half-screen layouts are not saved automatically. You can still use **Save Home** (`⌃⌥⌘S`) whenever you want to set a Home explicitly.
 
 macOS may ask you to grant permissions again after the app is moved or rebuilt with a different signature.
+
+WindowHome enables **Autostart on startup** on its first launch. You can turn it off under **Settings → Automation → Startup**; it stays off after restarting the app. If macOS requires approval, the same page offers a button to open Login Items settings.
 
 ## Default shortcuts
 
