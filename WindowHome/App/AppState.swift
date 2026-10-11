@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import ServiceManagement
 
 @MainActor
 final class AppState: ObservableObject {
@@ -40,7 +41,17 @@ final class AppState: ObservableObject {
     @Published private(set) var mouseSnapMode: MouseSnapMode = .off
     @Published private(set) var showMouseSnapAreas = true
     @Published private(set) var inputMonitoringPermissionGranted = InputMonitoringPermissionService.isGranted
+    @Published private(set) var launchAtLoginStatus: SMAppService.Status = .notRegistered
+    @Published private(set) var launchAtLoginError = ""
 
+    var autostartEnabled: Bool {
+        launchAtLoginStatus == .enabled || launchAtLoginStatus == .requiresApproval
+    }
+
+    var autostartRequiresApproval: Bool { launchAtLoginStatus == .requiresApproval }
+
+    private let launchAtLoginService = LaunchAtLoginService()
+    private var activationObserver: AnyCancellable?
     private let focusedWindowService = FocusedWindowService()
     private let displayService = DisplayService()
     private let profileStore: ProfileStore?
@@ -133,6 +144,41 @@ final class AppState: ObservableObject {
                 Task { @MainActor [weak self] in self?.restoreNewFinderWindow(window, application: application) }
             }
         )
+        // Test hosts and previews must not register their temporary app as a login item.
+        if NSClassFromString("XCTestCase") == nil,
+           ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+           ProcessInfo.processInfo.environment["XCTestBundlePath"] == nil,
+           ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" {
+            do {
+                try launchAtLoginService.applyDefaultIfNeeded()
+            } catch {
+                launchAtLoginError = "Could not enable autostart: \(error.localizedDescription)"
+            }
+        }
+        refreshLaunchAtLoginStatus()
+        activationObserver = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshLaunchAtLoginStatus() }
+            }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginStatus = launchAtLoginService.status
+    }
+
+    func setAutostartEnabled(_ enabled: Bool) {
+        do {
+            try launchAtLoginService.setEnabled(enabled)
+            launchAtLoginError = ""
+        } catch {
+            launchAtLoginError = "Could not change autostart: \(error.localizedDescription)"
+            statusMessage = launchAtLoginError
+        }
+        refreshLaunchAtLoginStatus()
+    }
+
+    func openLoginItemsSettings() {
+        SMAppService.openSystemSettingsLoginItems()
     }
 
     func requestAccessibilityPermission() {

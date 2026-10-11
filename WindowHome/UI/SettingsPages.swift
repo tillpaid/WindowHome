@@ -293,8 +293,28 @@ private struct AutomationSettingsPage: View {
     var body: some View {
         SettingsPageLayout(
             title: "Automation",
-            subtitle: "Choose how WindowHome places a window after moving it to another display."
+            subtitle: "Configure startup and automatic window behavior."
         ) {
+            GroupBox("Startup") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(
+                        "Autostart on startup",
+                        isOn: Binding(get: { appState.autostartEnabled }, set: appState.setAutostartEnabled)
+                    )
+                    SettingsFootnote("Start WindowHome automatically when you log in to your Mac. Enabled by default.")
+                    if appState.autostartRequiresApproval {
+                        SettingsFootnote("Autostart is waiting for your approval in macOS Login Items.")
+                        Button("Open Login Items Settings", action: appState.openLoginItemsSettings)
+                    }
+                    if !appState.launchAtLoginError.isEmpty {
+                        Text(appState.launchAtLoginError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
             GroupBox("Display Move") {
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle(
@@ -318,6 +338,7 @@ private struct AutomationSettingsPage: View {
                 .padding(.vertical, 2)
             }
         }
+        .onAppear { appState.refreshLaunchAtLoginStatus() }
     }
 }
 
