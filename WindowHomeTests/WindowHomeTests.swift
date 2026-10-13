@@ -814,6 +814,8 @@ struct WindowHomeTests {
             .moveToPreviousDisplayDefault,
             .snapLeftDefault,
             .snapRightDefault,
+            .snapLeftThirdDefault,
+            .snapRightThirdDefault,
             .snapTopDefault,
             .snapBottomDefault,
             .snapFullScreenDefault,
@@ -842,6 +844,8 @@ struct WindowHomeTests {
         #expect(KeyboardShortcut.moveToPreviousDisplayDefault.displayString == "⌃⌥⌘←")
         #expect(KeyboardShortcut.snapLeftDefault.displayString == "⌥⌘←")
         #expect(KeyboardShortcut.snapRightDefault.displayString == "⌥⌘→")
+        #expect(KeyboardShortcut.snapLeftThirdDefault.displayString == "⌃⌥←")
+        #expect(KeyboardShortcut.snapRightThirdDefault.displayString == "⌃⌥→")
         #expect(KeyboardShortcut.snapTopDefault.displayString == "⌥⌘↑")
         #expect(KeyboardShortcut.snapBottomDefault.displayString == "⌥⌘↓")
         #expect(KeyboardShortcut.snapFullScreenDefault.displayString == "⌥⌘F")
@@ -1023,6 +1027,91 @@ struct WindowHomeTests {
         #expect(profile.history.first?.geometry == storedGeometry(x: 50))
         #expect(profile.history.last?.geometry == storedGeometry(x: 240))
         #expect(profile.geometry == storedGeometry(x: 250))
+    }
+
+    @Test func thirdsFillThreeEqualColumnsWithTwoGutters() {
+        for frame in [CGRect(x: 0, y: 30, width: 1920, height: 1050), CGRect(x: -2560, y: 960, width: 2560, height: 1400)] {
+            for padding: CGFloat in [0, 12, 80] {
+                let columns = [SnapDirection.leftThird, .centerThird, .rightThird].map {
+                    SnapLayout.appKitRect(direction: $0, fraction: 1.0 / 3.0, padding: padding, visibleFrame: frame)
+                }
+                let usable = frame.insetBy(dx: padding, dy: padding)
+                #expect(abs(columns[0].minX - usable.minX) < 0.001)
+                #expect(abs(columns[2].maxX - usable.maxX) < 0.001)
+                #expect(abs(columns[1].midX - usable.midX) < 0.001)
+                #expect(abs(columns[1].minX - columns[0].maxX - padding) < 0.001)
+                #expect(abs(columns[2].minX - columns[1].maxX - padding) < 0.001)
+                #expect(columns.allSatisfy { abs($0.width - columns[0].width) < 0.001 && $0.height == usable.height && $0.minY == usable.minY })
+                let converter = CoordinateConverter(desktopFrame: frame, accessibilityReferenceY: 900)
+                for (direction, rect) in zip([SnapDirection.leftThird, .centerThird, .rightThird], columns) {
+                    let geometry = SnapLayout.accessibilityGeometry(direction: direction, fraction: 1.0 / 3.0, padding: padding, visibleFrame: frame, converter: converter)
+                    #expect(converter.appKitRect(fromAccessibility: geometry) == rect)
+                }
+            }
+        }
+    }
+
+    @Test func thirdsClampExcessivePaddingOnSmallDisplays() {
+        let frame = CGRect(x: -100, y: 50, width: 120, height: 90)
+        let columns = [SnapDirection.leftThird, .centerThird, .rightThird].map {
+            SnapLayout.appKitRect(direction: $0, fraction: 1.0 / 3.0, padding: 500, visibleFrame: frame)
+        }
+        #expect(columns.allSatisfy { $0.width >= 1 && $0.height >= 1 && frame.contains($0) })
+        #expect(columns[0].maxX <= columns[1].minX)
+        #expect(columns[1].maxX <= columns[2].minX)
+    }
+
+    @Test func thirdsCycleFromEachEdgeAndWrapWithoutGeometryFeedback() {
+        let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        for (direction, expected) in [
+            (SnapDirection.leftThird, [SnapDirection.leftThird, .centerThird, .rightThird, .leftThird]),
+            (.rightThird, [.rightThird, .centerThird, .leftThird, .rightThird])
+        ] {
+            var cycle = ThirdSnapCycle()
+            let actual = (0..<4).map { _ in cycle.next(toward: direction, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) }
+            #expect(actual == expected)
+        }
+    }
+
+    @Test func thirdsCanReverseDirectionFromTheCurrentColumn() {
+        var cycle = ThirdSnapCycle()
+        let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        #expect(cycle.next(toward: .leftThird, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) == .leftThird)
+        #expect(cycle.next(toward: .leftThird, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) == .centerThird)
+        #expect(cycle.next(toward: .rightThird, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) == .leftThird)
+        #expect(cycle.next(toward: .rightThird, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) == .rightThird)
+    }
+
+    @Test func thirdsRestartForAnotherWindowProcessDisplayOrExplicitReset() {
+        var cycle = ThirdSnapCycle()
+        let frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        #expect(cycle.next(toward: .leftThird, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) == .leftThird)
+        #expect(cycle.next(toward: .leftThird, processIdentifier: 1, windowIdentifier: 10, visibleFrame: frame) == .centerThird)
+        #expect(cycle.next(toward: .leftThird, processIdentifier: 1, windowIdentifier: 11, visibleFrame: frame) == .leftThird)
+        #expect(cycle.next(toward: .leftThird, processIdentifier: 2, windowIdentifier: 11, visibleFrame: frame) == .leftThird)
+        #expect(cycle.next(toward: .rightThird, processIdentifier: 2, windowIdentifier: 11, visibleFrame: frame.offsetBy(dx: -1920, dy: 1080)) == .rightThird)
+        cycle.reset()
+        #expect(cycle.next(toward: .rightThird, processIdentifier: 2, windowIdentifier: 11, visibleFrame: frame.offsetBy(dx: -1920, dy: 1080)) == .rightThird)
+    }
+
+    @Test func thirdsShortcutsPersistCustomizationClearAndDefaults() throws {
+        let suite = "WindowHomeTests.Thirds.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(KeyboardShortcutPreferences.loadSnapLeftThird(defaults: defaults) == .snapLeftThirdDefault)
+        #expect(KeyboardShortcutPreferences.loadSnapRightThird(defaults: defaults) == .snapRightThirdDefault)
+        KeyboardShortcutPreferences.saveSnapShortcut(.saveHomeDefault, direction: .leftThird, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadSnapLeftThird(defaults: defaults) == .saveHomeDefault)
+        #expect(KeyboardShortcutPreferences.loadSnapRightThird(defaults: defaults) == .snapRightThirdDefault)
+        for direction in [SnapDirection.leftThird, .rightThird] {
+            KeyboardShortcutPreferences.saveSnapShortcut(nil, direction: direction, defaults: defaults)
+        }
+        #expect(KeyboardShortcutPreferences.loadSnapLeftThird(defaults: defaults) == nil)
+        #expect(KeyboardShortcutPreferences.loadSnapRightThird(defaults: defaults) == nil)
+        KeyboardShortcutPreferences.saveSnapShortcut(.snapLeftThirdDefault, direction: .leftThird, defaults: defaults)
+        KeyboardShortcutPreferences.saveSnapShortcut(.snapRightThirdDefault, direction: .rightThird, defaults: defaults)
+        #expect(KeyboardShortcutPreferences.loadSnapLeftThird(defaults: defaults) == .snapLeftThirdDefault)
+        #expect(KeyboardShortcutPreferences.loadSnapRightThird(defaults: defaults) == .snapRightThirdDefault)
     }
 
     @Test func snapLayoutUsesPaddingAndCyclesThroughExpectedFractions() {

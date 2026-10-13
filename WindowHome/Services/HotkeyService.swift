@@ -34,6 +34,8 @@ final class HotkeyService {
     private static let moveAllToDisplayBaseID: UInt32 = 100
     private static let snapLeftID: UInt32 = 6
     private static let snapRightID: UInt32 = 7
+    private static let snapLeftThirdID: UInt32 = 22
+    private static let snapRightThirdID: UInt32 = 23
     private static let snapTopID: UInt32 = 8
     private static let snapBottomID: UInt32 = 9
     private static let snapFullScreenID: UInt32 = 10
@@ -81,7 +83,7 @@ final class HotkeyService {
         if let eventHandler { RemoveEventHandler(eventHandler) }
     }
 
-    func register(saveHome: KeyboardShortcut?, restoreHome: KeyboardShortcut?, undoHome: KeyboardShortcut?, redoHome: KeyboardShortcut?, restoreAll: KeyboardShortcut?, centerAndSaveHome: KeyboardShortcut?, moveToNextDisplay: KeyboardShortcut?, moveToPreviousDisplay: KeyboardShortcut?, moveAllToDisplays: [Int: KeyboardShortcut], snapLeft: KeyboardShortcut?, snapRight: KeyboardShortcut?, snapTop: KeyboardShortcut?, snapBottom: KeyboardShortcut?, snapFullScreen: KeyboardShortcut?, snapTopLeft: KeyboardShortcut?, snapTopRight: KeyboardShortcut?, snapBottomLeft: KeyboardShortcut?, snapBottomRight: KeyboardShortcut?, increaseWidth: KeyboardShortcut?, decreaseWidth: KeyboardShortcut?, increaseHeight: KeyboardShortcut?, decreaseHeight: KeyboardShortcut?, onSaveHome: @escaping () -> Void, onRestoreHome: @escaping () -> Void, onUndoHome: @escaping () -> Void, onRedoHome: @escaping () -> Void, onRestoreAll: @escaping () -> Void, onCenterAndSaveHome: @escaping () -> Void, onMoveToNextDisplay: @escaping () -> Void, onMoveToPreviousDisplay: @escaping () -> Void, onMoveAllToDisplay: @escaping (Int) -> Void, onSnapLeft: @escaping () -> Void, onSnapRight: @escaping () -> Void, onSnapTop: @escaping () -> Void, onSnapBottom: @escaping () -> Void, onSnapFullScreen: @escaping () -> Void, onSnapTopLeft: @escaping () -> Void, onSnapTopRight: @escaping () -> Void, onSnapBottomLeft: @escaping () -> Void, onSnapBottomRight: @escaping () -> Void, onIncreaseWidth: @escaping () -> Void, onDecreaseWidth: @escaping () -> Void, onIncreaseHeight: @escaping () -> Void, onDecreaseHeight: @escaping () -> Void) throws {
+    func register(saveHome: KeyboardShortcut?, restoreHome: KeyboardShortcut?, undoHome: KeyboardShortcut?, redoHome: KeyboardShortcut?, restoreAll: KeyboardShortcut?, centerAndSaveHome: KeyboardShortcut?, moveToNextDisplay: KeyboardShortcut?, moveToPreviousDisplay: KeyboardShortcut?, moveAllToDisplays: [Int: KeyboardShortcut], snapLeft: KeyboardShortcut?, snapRight: KeyboardShortcut?, snapLeftThird: KeyboardShortcut?, snapRightThird: KeyboardShortcut?, snapTop: KeyboardShortcut?, snapBottom: KeyboardShortcut?, snapFullScreen: KeyboardShortcut?, snapTopLeft: KeyboardShortcut?, snapTopRight: KeyboardShortcut?, snapBottomLeft: KeyboardShortcut?, snapBottomRight: KeyboardShortcut?, increaseWidth: KeyboardShortcut?, decreaseWidth: KeyboardShortcut?, increaseHeight: KeyboardShortcut?, decreaseHeight: KeyboardShortcut?, onSaveHome: @escaping () -> Void, onRestoreHome: @escaping () -> Void, onUndoHome: @escaping () -> Void, onRedoHome: @escaping () -> Void, onRestoreAll: @escaping () -> Void, onCenterAndSaveHome: @escaping () -> Void, onMoveToNextDisplay: @escaping () -> Void, onMoveToPreviousDisplay: @escaping () -> Void, onMoveAllToDisplay: @escaping (Int) -> Void, onSnapLeft: @escaping () -> Void, onSnapRight: @escaping () -> Void, onSnapLeftThird: @escaping () -> Void, onSnapRightThird: @escaping () -> Void, onSnapTop: @escaping () -> Void, onSnapBottom: @escaping () -> Void, onSnapFullScreen: @escaping () -> Void, onSnapTopLeft: @escaping () -> Void, onSnapTopRight: @escaping () -> Void, onSnapBottomLeft: @escaping () -> Void, onSnapBottomRight: @escaping () -> Void, onIncreaseWidth: @escaping () -> Void, onDecreaseWidth: @escaping () -> Void, onIncreaseHeight: @escaping () -> Void, onDecreaseHeight: @escaping () -> Void) throws {
         unregisterAll()
         saveHomeAction = onSaveHome
         restoreHomeAction = onRestoreHome
@@ -92,7 +94,7 @@ final class HotkeyService {
         moveToNextDisplayAction = onMoveToNextDisplay
         moveToPreviousDisplayAction = onMoveToPreviousDisplay
         moveAllDisplayActions.removeAll()
-        snapActions = [Self.snapLeftID: onSnapLeft, Self.snapRightID: onSnapRight, Self.snapTopID: onSnapTop, Self.snapBottomID: onSnapBottom, Self.snapFullScreenID: onSnapFullScreen, Self.snapTopLeftID: onSnapTopLeft, Self.snapTopRightID: onSnapTopRight, Self.snapBottomLeftID: onSnapBottomLeft, Self.snapBottomRightID: onSnapBottomRight]
+        snapActions = [Self.snapLeftID: onSnapLeft, Self.snapRightID: onSnapRight, Self.snapLeftThirdID: onSnapLeftThird, Self.snapRightThirdID: onSnapRightThird, Self.snapTopID: onSnapTop, Self.snapBottomID: onSnapBottom, Self.snapFullScreenID: onSnapFullScreen, Self.snapTopLeftID: onSnapTopLeft, Self.snapTopRightID: onSnapTopRight, Self.snapBottomLeftID: onSnapBottomLeft, Self.snapBottomRightID: onSnapBottomRight]
         resizeActions = [
             Self.increaseWidthID: onIncreaseWidth,
             Self.decreaseWidthID: onDecreaseWidth,
@@ -115,6 +117,8 @@ final class HotkeyService {
             }
             try register(snapLeft, id: Self.snapLeftID)
             try register(snapRight, id: Self.snapRightID)
+            try register(snapLeftThird, id: Self.snapLeftThirdID)
+            try register(snapRightThird, id: Self.snapRightThirdID)
             try register(snapTop, id: Self.snapTopID)
             try register(snapBottom, id: Self.snapBottomID)
             try register(snapFullScreen, id: Self.snapFullScreenID)
@@ -175,7 +179,7 @@ final class HotkeyService {
         case Self.centerAndSaveHomeID: centerAndSaveHomeAction?()
         case Self.moveToNextDisplayID: moveToNextDisplayAction?()
         case Self.moveToPreviousDisplayID: moveToPreviousDisplayAction?()
-        case Self.snapLeftID, Self.snapRightID, Self.snapTopID, Self.snapBottomID, Self.snapFullScreenID, Self.snapTopLeftID, Self.snapTopRightID, Self.snapBottomLeftID, Self.snapBottomRightID: snapActions[hotkeyID.id]?()
+        case Self.snapLeftID, Self.snapRightID, Self.snapLeftThirdID, Self.snapRightThirdID, Self.snapTopID, Self.snapBottomID, Self.snapFullScreenID, Self.snapTopLeftID, Self.snapTopRightID, Self.snapBottomLeftID, Self.snapBottomRightID: snapActions[hotkeyID.id]?()
         case Self.increaseWidthID, Self.decreaseWidthID, Self.increaseHeightID, Self.decreaseHeightID:
             guard activeResizeHotkeyID != hotkeyID.id else { return noErr }
             resizeActions[hotkeyID.id]?()

@@ -15,6 +15,37 @@ struct NumberedDisplay: Identifiable {
 
 enum SnapDirection: CaseIterable, Hashable {
     case left, right, top, bottom, fullScreen, topLeft, topRight, bottomLeft, bottomRight
+    case leftThird, centerThird, rightThird
+
+    var isThird: Bool { self == .leftThird || self == .centerThird || self == .rightThird }
+}
+
+/// Remembers the requested column so rapid presses also work during an animation.
+struct ThirdSnapCycle {
+    private var processIdentifier: pid_t?
+    private var windowIdentifier: CFHashCode?
+    private var visibleFrame: CGRect?
+    private var column: Int?
+
+    mutating func next(toward direction: SnapDirection, processIdentifier: pid_t, windowIdentifier: CFHashCode, visibleFrame: CGRect) -> SnapDirection {
+        precondition(direction == .leftThird || direction == .rightThird)
+        let columns: [SnapDirection] = [.leftThird, .centerThird, .rightThird]
+        let nextColumn: Int
+        if self.processIdentifier == processIdentifier,
+           self.windowIdentifier == windowIdentifier,
+           self.visibleFrame == visibleFrame, let column {
+            nextColumn = (column + (direction == .leftThird ? 1 : 2)) % columns.count
+        } else {
+            nextColumn = direction == .leftThird ? 0 : 2
+        }
+        self.processIdentifier = processIdentifier
+        self.windowIdentifier = windowIdentifier
+        self.visibleFrame = visibleFrame
+        column = nextColumn
+        return columns[nextColumn]
+    }
+
+    mutating func reset() { self = ThirdSnapCycle() }
 }
 
 struct MouseSnapActivationZone: Equatable {
@@ -38,6 +69,12 @@ enum SnapLayout {
         switch direction {
         case .fullScreen:
             rect = frame
+        case .leftThird, .centerThird, .rightThird:
+            // Three equal columns require two gutters inside the padded display.
+            let gap = min(effectivePadding, max(0, (frame.width - 3) / 2))
+            let width = max(0, frame.width - 2 * gap) / 3
+            let column: CGFloat = direction == .leftThird ? 0 : (direction == .centerThird ? 1 : 2)
+            rect = CGRect(x: frame.minX + column * (width + gap), y: frame.minY, width: width, height: frame.height)
         case .left:
             rect = CGRect(x: frame.minX, y: frame.minY, width: horizontalSpan * fraction, height: frame.height)
         case .right:

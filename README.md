@@ -17,11 +17,13 @@ It also includes practical window-management tools—keyboard and mouse snapping
 - Optionally keep Full Screen Snap when moving between displays without changing saved Homes.
 - Snap by keyboard to full screen, halves, or quarters.
 - Repeat a side or corner shortcut to cycle through 50%, 66%, and 33% widths.
+- Arrange three windows in equal full-height columns: dedicated thirds shortcuts cycle left → center → right or right → center → left, then wrap around.
 - Resize symmetrically from the window center with configurable steps, including aspect-ratio-locked video windows such as FaceTime.
 - Optionally snap with the mouse, with visible activation areas and target previews.
 - Restore saved geometry after an app launches and whenever a new Finder browser window opens, while leaving Finder Quick Look previews, Get Info windows, and utility panels untouched.
 - Configure or disable every global shortcut from Settings.
 - Start automatically at login by default, with a toggle in Settings → Automation → Startup.
+- Experiment with smooth window transitions using **Settings → Automation → Experimental → Animate window moves** (off by default).
 
 ## Install
 
@@ -76,6 +78,7 @@ All shortcuts are global, configurable, and can be disabled individually.
 | Move all to displays 1–9 | `⌃⌥⌘1` through `⌃⌥⌘9` |
 | Previous / Next display | `⌃⌥⌘←` / `⌃⌥⌘→` |
 | Snap left / right / top / bottom | `⌥⌘←` / `⌥⌘→` / `⌥⌘↑` / `⌥⌘↓` |
+| Thirds from left / right | `⌃⌥←` / `⌃⌥→` |
 | Snap full screen | `⌥⌘F` |
 | Snap top-left / top-right | `⌃⌘←` / `⌃⌘→` |
 | Snap bottom-left / bottom-right | `⌃⇧⌘←` / `⌃⇧⌘→` |
@@ -104,10 +107,12 @@ Saved window profiles are stored as JSON at:
 - App-launch restore—including newly opened Finder windows—keeps a window on its current display.
 - Finder Quick Look previews, Get Info windows, and utility panels are excluded from Home, Snap, resize, and automatic restore actions.
 - Home settling runs only after WindowHome's explicit Next/Previous Display or Move All to Display actions. Each moved window is checked briefly for delayed browser layout changes, so exiting a snapped layout does not override the destination Home size. A new geometry action or mouse drag cancels pending retries; WindowHome does not monitor arbitrary window movements.
+- **Thirds** keep a fixed one-third column width and fill the usable display height. The first press starts at the chosen edge; repeat to visit the center and opposite edge, then wrap around. Switching the thirds shortcut reverses the cycle from its current column. A different window, display change, Restore, or another Snap action restarts the cycle. Display borders and the two column gutters use the configured Snap padding. Existing Homes are preserved; a missing Home is captured before the first Snap.
 - Mouse Snap currently supports left, right, and full-screen targets; keyboard Snap also supports top, bottom, and corners.
 - Some apps enforce their own minimum or maximum window size. WindowHome keeps the closest geometry the app accepts.
 - For fixed-size app windows, **Center & Save Home** still centers the window and saves its actual size without requesting a resize.
 - WindowHome uses public macOS Accessibility APIs; cross-app moves cannot be applied as one atomic animated frame update.
+- **Animate window moves** adds an eased transition with a configurable duration (0.15–0.80 seconds, default 0.32 seconds) to keyboard/mouse Snap, Restore Home, Undo/Redo, Restore All, and Next/Previous/Move All display moves. The **Animation duration** slider beneath the toggle sets the speed of future moves and is saved between launches; **Reset** restores the default. On macOS 14 and later, updates follow a display's refresh cadence, up to 120 Hz; macOS 13 uses a repeating 60 Hz timer. New actions or a mouse click interrupt ongoing transitions; display changes cancel them too. macOS Reduce Motion bypasses animation. Turning the option off during a transition applies its final frame immediately. Automatic launch restore, Center & Save Home, centered resize, and mouse tear-off stay immediate. Animation updates real windows through Accessibility rather than using Stage Manager's system effects; smoothness depends on the app, and slow or rejected intermediate updates fall back to the final frame. No extra permissions are required.
 
 ## Development
 
