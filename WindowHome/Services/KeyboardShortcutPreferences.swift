@@ -19,6 +19,8 @@ enum KeyboardShortcutPreferences {
     private static let moveToPreviousDisplayKey = "moveToPreviousDisplayShortcut"
     private static let snapLeftKey = "snapLeftShortcut"
     private static let snapRightKey = "snapRightShortcut"
+    private static let snapLeftThirdKey = "snapLeftThirdShortcut"
+    private static let snapRightThirdKey = "snapRightThirdShortcut"
     private static let snapTopKey = "snapTopShortcut"
     private static let snapBottomKey = "snapBottomShortcut"
     private static let snapFullScreenKey = "snapFullScreenShortcut"
@@ -38,6 +40,26 @@ enum KeyboardShortcutPreferences {
     private static let mouseSnapEnabledKey = "mouseSnapEnabled"
     private static let mouseSnapModeKey = "mouseSnapMode"
     private static let showMouseSnapAreasKey = "showMouseSnapAreas"
+    private static let animatedWindowMovesKey = "animatedWindowMovesEnabled"
+    private static let windowAnimationDurationKey = "windowAnimationDuration"
+
+    static func loadWindowAnimationDuration(defaults: UserDefaults = .standard) -> Double {
+        WindowAnimationTiming.clampedDuration(
+            defaults.object(forKey: windowAnimationDurationKey) as? Double ?? WindowAnimationTiming.defaultDuration
+        )
+    }
+
+    static func saveWindowAnimationDuration(_ duration: Double, defaults: UserDefaults = .standard) {
+        defaults.set(WindowAnimationTiming.clampedDuration(duration), forKey: windowAnimationDurationKey)
+    }
+
+    static func loadAnimatedWindowMoves(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: animatedWindowMovesKey)
+    }
+
+    static func saveAnimatedWindowMoves(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: animatedWindowMovesKey)
+    }
 
     private static func clearedKey(for key: String) -> String { "\(key)Cleared" }
 
@@ -73,6 +95,8 @@ enum KeyboardShortcutPreferences {
 
     static func loadSnapLeft() -> KeyboardShortcut? { loadShortcut(forKey: snapLeftKey, defaultShortcut: .snapLeftDefault) }
     static func loadSnapRight() -> KeyboardShortcut? { loadShortcut(forKey: snapRightKey, defaultShortcut: .snapRightDefault) }
+    static func loadSnapLeftThird(defaults: UserDefaults = .standard) -> KeyboardShortcut? { loadShortcut(forKey: snapLeftThirdKey, defaultShortcut: .snapLeftThirdDefault, defaults: defaults) }
+    static func loadSnapRightThird(defaults: UserDefaults = .standard) -> KeyboardShortcut? { loadShortcut(forKey: snapRightThirdKey, defaultShortcut: .snapRightThirdDefault, defaults: defaults) }
     static func loadSnapTop() -> KeyboardShortcut? { loadShortcut(forKey: snapTopKey, defaultShortcut: .snapTopDefault) }
     static func loadSnapBottom() -> KeyboardShortcut? { loadShortcut(forKey: snapBottomKey, defaultShortcut: .snapBottomDefault) }
     static func loadSnapFullScreen() -> KeyboardShortcut? { loadShortcut(forKey: snapFullScreenKey, defaultShortcut: .snapFullScreenDefault) }
@@ -139,11 +163,14 @@ enum KeyboardShortcutPreferences {
         saveShortcut(shortcut, forKey: moveToPreviousDisplayKey)
     }
 
-    static func saveSnapShortcut(_ shortcut: KeyboardShortcut?, direction: SnapDirection) {
+    static func saveSnapShortcut(_ shortcut: KeyboardShortcut?, direction: SnapDirection, defaults: UserDefaults = .standard) {
         let key: String
         switch direction {
         case .left: key = snapLeftKey
         case .right: key = snapRightKey
+        case .leftThird: key = snapLeftThirdKey
+        case .rightThird: key = snapRightThirdKey
+        case .centerThird: return
         case .top: key = snapTopKey
         case .bottom: key = snapBottomKey
         case .fullScreen: key = snapFullScreenKey
@@ -152,7 +179,7 @@ enum KeyboardShortcutPreferences {
         case .bottomLeft: key = snapBottomLeftKey
         case .bottomRight: key = snapBottomRightKey
         }
-        saveShortcut(shortcut, forKey: key)
+        saveShortcut(shortcut, forKey: key, defaults: defaults)
     }
 
     static func saveResizeShortcut(_ shortcut: KeyboardShortcut?, action: WindowResizeAction) {

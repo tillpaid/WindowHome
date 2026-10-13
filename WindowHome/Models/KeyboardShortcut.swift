@@ -26,6 +26,8 @@ struct KeyboardShortcut: Codable, Equatable {
     static let decreaseHeightDefault = KeyboardShortcut(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey))
     static let snapLeftDefault = KeyboardShortcut(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(cmdKey | optionKey))
     static let snapRightDefault = KeyboardShortcut(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(cmdKey | optionKey))
+    static let snapLeftThirdDefault = KeyboardShortcut(keyCode: UInt32(kVK_LeftArrow), modifiers: UInt32(controlKey | optionKey))
+    static let snapRightThirdDefault = KeyboardShortcut(keyCode: UInt32(kVK_RightArrow), modifiers: UInt32(controlKey | optionKey))
     static let snapTopDefault = KeyboardShortcut(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(cmdKey | optionKey))
     static let snapBottomDefault = KeyboardShortcut(keyCode: UInt32(kVK_DownArrow), modifiers: UInt32(cmdKey | optionKey))
     static let snapFullScreenDefault = KeyboardShortcut(keyCode: UInt32(kVK_ANSI_F), modifiers: UInt32(cmdKey | optionKey))

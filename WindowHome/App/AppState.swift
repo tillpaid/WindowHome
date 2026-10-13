@@ -22,6 +22,8 @@ final class AppState: ObservableObject {
     private var displayChangeObserver: AnyCancellable?
     @Published private(set) var snapLeftShortcut: KeyboardShortcut? = KeyboardShortcut.snapLeftDefault
     @Published private(set) var snapRightShortcut: KeyboardShortcut? = KeyboardShortcut.snapRightDefault
+    @Published private(set) var snapLeftThirdShortcut: KeyboardShortcut? = KeyboardShortcut.snapLeftThirdDefault
+    @Published private(set) var snapRightThirdShortcut: KeyboardShortcut? = KeyboardShortcut.snapRightThirdDefault
     @Published private(set) var snapTopShortcut: KeyboardShortcut? = KeyboardShortcut.snapTopDefault
     @Published private(set) var snapBottomShortcut: KeyboardShortcut? = KeyboardShortcut.snapBottomDefault
     @Published private(set) var snapFullScreenShortcut: KeyboardShortcut? = KeyboardShortcut.snapFullScreenDefault
@@ -40,6 +42,8 @@ final class AppState: ObservableObject {
     @Published private(set) var automaticSaveAfterMouseMoveEnabled = false
     @Published private(set) var mouseSnapMode: MouseSnapMode = .off
     @Published private(set) var showMouseSnapAreas = true
+    @Published private(set) var animatedWindowMovesEnabled = false
+    @Published private(set) var windowAnimationDuration = WindowAnimationTiming.defaultDuration
     @Published private(set) var inputMonitoringPermissionGranted = InputMonitoringPermissionService.isGranted
     @Published private(set) var launchAtLoginStatus: SMAppService.Status = .notRegistered
     @Published private(set) var launchAtLoginError = ""
@@ -53,6 +57,7 @@ final class AppState: ObservableObject {
     private let launchAtLoginService = LaunchAtLoginService()
     private var activationObserver: AnyCancellable?
     private let focusedWindowService = FocusedWindowService()
+    private let windowAnimationService = WindowAnimationService()
     private let displayService = DisplayService()
     private let profileStore: ProfileStore?
     private let hotkeyService: HotkeyService?
@@ -64,6 +69,7 @@ final class AppState: ObservableObject {
     private var lastSnapProcessIdentifier: pid_t?
     private var lastSnapWindowIdentifier: CFHashCode?
     private var snapFractionIndex = 0
+    private var thirdSnapCycle = ThirdSnapCycle()
     private var activeSnapRequestID: UUID?
     private var activeLaunchRestoreRequestID: UUID?
     private var displayMoveRequests = DisplayMoveRequests()
@@ -97,6 +103,8 @@ final class AppState: ObservableObject {
         }
         snapLeftShortcut = KeyboardShortcutPreferences.loadSnapLeft()
         snapRightShortcut = KeyboardShortcutPreferences.loadSnapRight()
+        snapLeftThirdShortcut = KeyboardShortcutPreferences.loadSnapLeftThird()
+        snapRightThirdShortcut = KeyboardShortcutPreferences.loadSnapRightThird()
         snapTopShortcut = KeyboardShortcutPreferences.loadSnapTop()
         snapBottomShortcut = KeyboardShortcutPreferences.loadSnapBottom()
         snapFullScreenShortcut = KeyboardShortcutPreferences.loadSnapFullScreen()
@@ -115,6 +123,8 @@ final class AppState: ObservableObject {
         automaticSaveAfterMouseMoveEnabled = KeyboardShortcutPreferences.automaticSaveAfterMouseMoveEnabled
         mouseSnapMode = KeyboardShortcutPreferences.mouseSnapMode
         showMouseSnapAreas = KeyboardShortcutPreferences.showMouseSnapAreas
+        animatedWindowMovesEnabled = KeyboardShortcutPreferences.loadAnimatedWindowMoves()
+        windowAnimationDuration = KeyboardShortcutPreferences.loadWindowAnimationDuration()
         do {
             profileStore = try ProfileStore()
         } catch {
@@ -128,10 +138,19 @@ final class AppState: ObservableObject {
             hotkeyService = nil
             statusMessage = error.localizedDescription
         }
+        windowAnimationService.onMouseInterruption = { [weak self] in
+            self?.cancelDisplayMoveRestoreStabilization()
+            self?.cancelLaunchRestoreStabilization()
+            self?.activeSnapRequestID = nil
+        }
         displayChangeObserver = NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.windowAnimationService.cancelAll()
+                    self.cancelDisplayMoveRestoreStabilization()
+                    self.activeSnapRequestID = nil
+                    self.thirdSnapCycle.reset()
                     self.connectedDisplays = self.displayService.numberedDisplays()
                 }
             }
@@ -213,6 +232,9 @@ final class AppState: ObservableObject {
     }
 
     func restoreLastRead() {
+        windowAnimationService.cancelAll()
+        cancelDisplayMoveRestoreStabilization()
+        resetSnapCycle()
         guard let lastSnapshot else {
             statusMessage = "Read a focused window before using Restore Last Read."
             return
@@ -275,7 +297,7 @@ final class AppState: ObservableObject {
                 on: display,
                 padding: CGFloat(snapPadding)
             )
-            try focusedWindowService.setGeometry(geometry, for: snapshot.window)
+            try restoreGeometry(geometry, for: snapshot)
             resetSnapCycle()
             focusedWindowDescription = "\(snapshot.applicationName) on \(display.name)\n\(geometry.description)"
             statusMessage = "Restored Home for \(snapshot.applicationName) on \(display.name)."
@@ -310,7 +332,7 @@ final class AppState: ObservableObject {
                 on: display,
                 padding: CGFloat(snapPadding)
             )
-            try focusedWindowService.setGeometry(geometry, for: snapshot.window)
+            try restoreGeometry(geometry, for: snapshot)
             resetSnapCycle()
             focusedWindowDescription = "\(snapshot.applicationName) on \(display.name)\n\(geometry.description)"
             statusMessage = "Restored the previous Home for \(snapshot.applicationName) on \(display.name)."
@@ -345,7 +367,7 @@ final class AppState: ObservableObject {
                 on: display,
                 padding: CGFloat(snapPadding)
             )
-            try focusedWindowService.setGeometry(geometry, for: snapshot.window)
+            try restoreGeometry(geometry, for: snapshot)
             resetSnapCycle()
             focusedWindowDescription = "\(snapshot.applicationName) on \(display.name)\n\(geometry.description)"
             statusMessage = "Restored the next Home for \(snapshot.applicationName) on \(display.name)."
@@ -436,6 +458,7 @@ final class AppState: ObservableObject {
             return
         }
         cancelLaunchRestoreStabilization()
+        windowAnimationService.cancelAll()
         cancelDisplayMoveRestoreStabilization()
         resetSnapCycle()
         mouseGesture = nil
@@ -512,7 +535,7 @@ final class AppState: ObservableObject {
         perform("snap the focused window") { snapshot in
             let display = try displayService.context(forAccessibilityGeometry: snapshot.geometry)
             saveHomeBeforeFirstSnapIfNeeded(snapshot: snapshot, on: display)
-            let fraction = nextSnapFraction(
+            let target = nextSnapTarget(
                 direction: direction,
                 processIdentifier: snapshot.processIdentifier,
                 windowIdentifier: snapshot.windowIdentifier,
@@ -520,15 +543,15 @@ final class AppState: ObservableObject {
                 on: display
             )
             let geometry = SnapLayout.accessibilityGeometry(
-                direction: direction,
-                fraction: fraction,
+                direction: target.direction,
+                fraction: target.fraction,
                 padding: CGFloat(snapPadding),
                 visibleFrame: display.visibleFrame,
                 converter: displayService.coordinateConverter()
             )
-            try applySnapGeometry(geometry, direction: direction, on: display, to: snapshot)
+            try applySnapGeometry(geometry, direction: target.direction, on: display, to: snapshot)
             focusedWindowDescription = "\(snapshot.applicationName) on \(display.name)\n\(geometry.description)"
-            statusMessage = "Snapped \(snapshot.applicationName) to \(snapLabel(for: direction)) at \(Int((fraction * 100).rounded()))%."
+            statusMessage = "Snapped \(snapshot.applicationName) to \(snapLabel(for: target.direction)) at \(Int((target.fraction * 100).rounded()))%."
         }
     }
 
@@ -551,8 +574,12 @@ final class AppState: ObservableObject {
     }
 
     private func snapSettingsWindow(_ window: NSWindow, to direction: SnapDirection) {
+        windowAnimationService.cancelAll()
+        activeSnapRequestID = nil
+        cancelDisplayMoveRestoreStabilization()
+        cancelLaunchRestoreStabilization()
         guard let screen = window.screen ?? NSScreen.main else { return }
-        let fraction = nextSnapFraction(
+        let target = nextSnapTarget(
             direction: direction,
             processIdentifier: ProcessInfo.processInfo.processIdentifier,
             windowIdentifier: CFHashCode(window.windowNumber),
@@ -563,13 +590,31 @@ final class AppState: ObservableObject {
                 visibleFrame: screen.visibleFrame
             )
         )
-        let frame = SnapLayout.appKitRect(direction: direction, fraction: fraction, padding: CGFloat(snapPadding), visibleFrame: screen.visibleFrame)
-        window.setFrame(frame, display: true, animate: false)
+        let frame = SnapLayout.appKitRect(direction: target.direction, fraction: target.fraction, padding: CGFloat(snapPadding), visibleFrame: screen.visibleFrame)
+        if shouldAnimateWindowMoves {
+            do {
+                let converter = displayService.coordinateConverter()
+                try windowAnimationService.animate(
+                    window: .init(processIdentifier: ProcessInfo.processInfo.processIdentifier, windowIdentifier: CFHashCode(window.windowNumber)),
+                    from: converter.accessibilityGeometry(fromAppKit: window.frame),
+                    to: converter.accessibilityGeometry(fromAppKit: frame),
+                    duration: windowAnimationDuration,
+                    write: { geometry in window.setFrame(converter.appKitRect(fromAccessibility: geometry), display: true, animate: false) },
+                    failure: { [weak self] error in self?.statusMessage = error.localizedDescription }
+                )
+            } catch { statusMessage = error.localizedDescription; return }
+        } else {
+            window.setFrame(frame, display: true, animate: false)
+        }
         focusedWindowDescription = "WindowHome Settings on \(screen.localizedName)\nx: \(frame.minX.rounded()), y: \(frame.minY.rounded()), width: \(frame.width.rounded()), height: \(frame.height.rounded())"
-        statusMessage = "Snapped WindowHome Settings to \(snapLabel(for: direction)) at \(Int((fraction * 100).rounded()))%."
+        statusMessage = "Snapped WindowHome Settings to \(snapLabel(for: target.direction)) at \(Int((target.fraction * 100).rounded()))%."
     }
 
     private func resizeSettingsWindow(_ window: NSWindow, action: WindowResizeAction) {
+        windowAnimationService.cancelAll()
+        activeSnapRequestID = nil
+        cancelDisplayMoveRestoreStabilization()
+        cancelLaunchRestoreStabilization()
         guard let screen = window.screen ?? NSScreen.main else { return }
         let converter = displayService.coordinateConverter()
         let geometry = converter.accessibilityGeometry(fromAppKit: window.frame)
@@ -604,6 +649,24 @@ final class AppState: ObservableObject {
         statusMessage = "Resized WindowHome Settings symmetrically from its center."
     }
 
+    private func nextSnapTarget(direction: SnapDirection, processIdentifier: pid_t, windowIdentifier: CFHashCode, currentGeometry: WindowGeometry, on display: DisplayContext) -> (direction: SnapDirection, fraction: CGFloat) {
+        if direction == .leftThird || direction == .rightThird {
+            lastSnapDirection = nil
+            lastSnapProcessIdentifier = nil
+            lastSnapWindowIdentifier = nil
+            snapFractionIndex = 0
+            return (thirdSnapCycle.next(
+                toward: direction, processIdentifier: processIdentifier,
+                windowIdentifier: windowIdentifier, visibleFrame: display.visibleFrame
+            ), 1.0 / 3.0)
+        }
+        thirdSnapCycle.reset()
+        return (direction, nextSnapFraction(
+            direction: direction, processIdentifier: processIdentifier,
+            windowIdentifier: windowIdentifier, currentGeometry: currentGeometry, on: display
+        ))
+    }
+
     private func nextSnapFraction(direction: SnapDirection, processIdentifier: pid_t, windowIdentifier: CFHashCode, currentGeometry: WindowGeometry, on display: DisplayContext) -> CGFloat {
         if direction == .fullScreen {
             resetSnapCycle()
@@ -632,8 +695,58 @@ final class AppState: ObservableObject {
         KeyboardShortcutPreferences.saveResizeStep(resizeStep)
     }
 
+    private var shouldAnimateWindowMoves: Bool {
+        WindowAnimationCurve.shouldAnimate(
+            enabled: animatedWindowMovesEnabled,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        )
+    }
+
+    func setAnimatedWindowMovesEnabled(_ enabled: Bool) {
+        animatedWindowMovesEnabled = enabled
+        KeyboardShortcutPreferences.saveAnimatedWindowMoves(enabled)
+        if !enabled { windowAnimationService.cancelAll(finishAtTarget: true) }
+    }
+
+    func setWindowAnimationDuration(_ duration: Double) {
+        windowAnimationDuration = WindowAnimationTiming.clampedDuration(duration)
+        KeyboardShortcutPreferences.saveWindowAnimationDuration(windowAnimationDuration)
+    }
+
+    private func transitionWindow(
+        to geometry: WindowGeometry,
+        snapshot: FocusedWindowSnapshot,
+        animationWriteOrder: DisplayMoveGeometryWriteOrder = .resizeBeforeMove,
+        write: @escaping (WindowGeometry) throws -> Void,
+        completion: @escaping () throws -> Void = {}
+    ) throws {
+        guard shouldAnimateWindowMoves else {
+            try write(geometry)
+            try completion()
+            return
+        }
+        let animationWriter = try focusedWindowService.animationWriter(
+            from: snapshot.geometry, to: geometry, writeOrder: animationWriteOrder, for: snapshot.window
+        )
+        try windowAnimationService.animate(
+            window: .init(processIdentifier: snapshot.processIdentifier, windowIdentifier: snapshot.windowIdentifier),
+            from: snapshot.geometry, to: geometry, duration: windowAnimationDuration, write: animationWriter.write,
+            finalWrite: write, completion: completion,
+            failure: { [weak self] error in
+                self?.statusMessage = "Could not finish moving \(snapshot.applicationName): \(error.localizedDescription)"
+            }
+        )
+    }
+
+    private func restoreGeometry(_ geometry: WindowGeometry, for snapshot: FocusedWindowSnapshot) throws {
+        try transitionWindow(to: geometry, snapshot: snapshot, write: { [focusedWindowService] frame in
+            try focusedWindowService.setGeometry(frame, for: snapshot.window)
+        })
+    }
+
     private func restoreAllOpenApplications() {
         guard let profileStore else { return }
+        windowAnimationService.cancelAll()
         cancelLaunchRestoreStabilization()
         cancelDisplayMoveRestoreStabilization()
         resetSnapCycle()
@@ -651,7 +764,7 @@ final class AppState: ObservableObject {
                     on: display,
                     padding: CGFloat(snapPadding)
                 )
-                try focusedWindowService.setGeometry(geometry, for: snapshot.window)
+                try restoreGeometry(geometry, for: snapshot)
                 restoredCount += 1
             } catch {
                 continue
@@ -1089,6 +1202,8 @@ final class AppState: ObservableObject {
 
     func updateSnapLeftShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .left, kind: .snapLeft) }
     func updateSnapRightShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .right, kind: .snapRight) }
+    func updateSnapLeftThirdShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .leftThird, kind: .snapLeftThird) }
+    func updateSnapRightThirdShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .rightThird, kind: .snapRightThird) }
     func updateSnapTopShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .top, kind: .snapTop) }
     func updateSnapBottomShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .bottom, kind: .snapBottom) }
     func updateSnapFullScreenShortcut(_ shortcut: KeyboardShortcut) { updateSnapShortcut(shortcut, direction: .fullScreen, kind: .snapFullScreen) }
@@ -1179,6 +1294,8 @@ final class AppState: ObservableObject {
         }
         snapLeftShortcut = .snapLeftDefault
         snapRightShortcut = .snapRightDefault
+        snapLeftThirdShortcut = .snapLeftThirdDefault
+        snapRightThirdShortcut = .snapRightThirdDefault
         snapTopShortcut = .snapTopDefault
         snapBottomShortcut = .snapBottomDefault
         snapFullScreenShortcut = .snapFullScreenDefault
@@ -1204,6 +1321,8 @@ final class AppState: ObservableObject {
             }
             KeyboardShortcutPreferences.saveSnapShortcut(snapLeftShortcut, direction: .left)
             KeyboardShortcutPreferences.saveSnapShortcut(snapRightShortcut, direction: .right)
+            KeyboardShortcutPreferences.saveSnapShortcut(snapLeftThirdShortcut, direction: .leftThird)
+            KeyboardShortcutPreferences.saveSnapShortcut(snapRightThirdShortcut, direction: .rightThird)
             KeyboardShortcutPreferences.saveSnapShortcut(snapTopShortcut, direction: .top)
             KeyboardShortcutPreferences.saveSnapShortcut(snapBottomShortcut, direction: .bottom)
             KeyboardShortcutPreferences.saveSnapShortcut(snapFullScreenShortcut, direction: .fullScreen)
@@ -1247,6 +1366,8 @@ final class AppState: ObservableObject {
                 moveAllToDisplays: moveAllDisplayShortcuts,
                 snapLeft: snapLeftShortcut,
                 snapRight: snapRightShortcut,
+                snapLeftThird: snapLeftThirdShortcut,
+                snapRightThird: snapRightThirdShortcut,
                 snapTop: snapTopShortcut,
                 snapBottom: snapBottomShortcut,
                 snapFullScreen: snapFullScreenShortcut,
@@ -1291,6 +1412,8 @@ final class AppState: ObservableObject {
                 onSnapRight: { [weak self] in
                     Task { @MainActor [weak self] in self?.snapFocusedWindow(to: .right) }
                 },
+                onSnapLeftThird: { [weak self] in Task { @MainActor [weak self] in self?.snapFocusedWindow(to: .leftThird) } },
+                onSnapRightThird: { [weak self] in Task { @MainActor [weak self] in self?.snapFocusedWindow(to: .rightThird) } },
                 onSnapTop: { [weak self] in
                     Task { @MainActor [weak self] in self?.snapFocusedWindow(to: .top) }
                 },
@@ -1360,6 +1483,7 @@ final class AppState: ObservableObject {
         guard var gesture = mouseGesture else { return }
         guard gesture.didDrag || hasWindowGeometryDriftedSinceMouseDown(gesture) else { return }
         if !gesture.didDrag {
+            windowAnimationService.cancelAll()
             cancelDisplayMoveRestoreStabilization()
         }
         gesture.didDrag = true
@@ -1488,7 +1612,7 @@ final class AppState: ObservableObject {
     private func isSnapGeometry(_ geometry: WindowGeometry, on display: DisplayContext) -> Bool {
         let converter = displayService.coordinateConverter()
         for direction in SnapDirection.allCases {
-            let fractions: [CGFloat] = direction == .fullScreen ? [0.5] : SnapLayout.fractions
+            let fractions: [CGFloat] = direction.isThird ? [1.0 / 3.0] : (direction == .fullScreen ? [0.5] : SnapLayout.fractions)
             for fraction in fractions {
                 let candidate = SnapLayout.accessibilityGeometry(direction: direction, fraction: fraction, padding: CGFloat(snapPadding), visibleFrame: display.visibleFrame, converter: converter)
                 if matches(geometry, candidate, tolerance: 8) { return true }
@@ -1660,24 +1784,20 @@ final class AppState: ObservableObject {
                 sourceVisibleFrame: sourceDisplay.visibleFrame,
                 padding: CGFloat(snapPadding)
             )
-            try focusedWindowService.setGeometryForDisplayMove(
-                targetGeometry,
-                writeOrder: writeOrder,
-                for: snapshot.window
-            )
             let windowID = DisplayMoveRequests.WindowID(
                 processIdentifier: snapshot.processIdentifier,
                 windowIdentifier: snapshot.windowIdentifier
             )
             let requestID = displayMoveRequests.begin(for: windowID)
-            keepDisplayMoveGeometryStable(
-                targetGeometry,
-                for: snapshot,
-                targetDisplayFingerprint: targetDisplay.fingerprint,
-                requestID: requestID,
-                allowProcessGeometryFallback: allowProcessGeometryFallback,
-                attempt: 0
-            )
+            try transitionWindow(to: targetGeometry, snapshot: snapshot, animationWriteOrder: writeOrder, write: { [focusedWindowService] frame in
+                try focusedWindowService.setGeometryForDisplayMove(frame, writeOrder: writeOrder, for: snapshot.window)
+            }, completion: { [weak self] in
+                guard let self, self.displayMoveRequests.isActive(requestID, for: windowID) else { return }
+                self.keepDisplayMoveGeometryStable(
+                    targetGeometry, for: snapshot, targetDisplayFingerprint: targetDisplay.fingerprint,
+                    requestID: requestID, allowProcessGeometryFallback: allowProcessGeometryFallback, attempt: 0
+                )
+            })
             focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(targetGeometry.description)"
             statusMessage = status
             return
@@ -1689,11 +1809,13 @@ final class AppState: ObservableObject {
             on: targetDisplay,
             padding: CGFloat(snapPadding)
         )
-        if transferPlan.requiresResize {
-            try focusedWindowService.setGeometry(transferPlan.geometry, for: snapshot.window)
-        } else {
-            try focusedWindowService.setPosition(transferPlan.geometry.origin, for: snapshot.window)
-        }
+        try transitionWindow(to: transferPlan.geometry, snapshot: snapshot, write: { [focusedWindowService] frame in
+            if transferPlan.requiresResize {
+                try focusedWindowService.setGeometry(frame, for: snapshot.window)
+            } else {
+                try focusedWindowService.setPosition(frame.origin, for: snapshot.window)
+            }
+        })
         focusedWindowDescription = "\(snapshot.applicationName) on \(targetDisplay.name)\n\(transferPlan.geometry.description)"
         statusMessage = status
     }
@@ -1705,19 +1827,29 @@ final class AppState: ObservableObject {
         // Some apps recalculate their frame for a short time after a resize or internal mode
         // switch. Keep ownership of the frame for a brief bounded settling window, but only for
         // the latest explicit Snap request.
-        try focusedWindowService.setPosition(geometry.origin, for: snapshot.window)
-        try focusedWindowService.setSize(geometry.size, for: snapshot.window)
-        let effectiveGeometry = centeredFullScreenGeometryIfNeeded(
-            requestedGeometry: geometry,
-            direction: direction,
-            display: display,
-            window: snapshot.window,
-            fallbackProcessIdentifier: snapshot.processIdentifier
+        // Mouse Snap's snapshot precedes the drag. Animate from its current release frame.
+        let currentGeometry = shouldAnimateWindowMoves
+            ? try focusedWindowService.readGeometry(of: snapshot.window, fallbackProcessIdentifier: snapshot.processIdentifier)
+            : snapshot.geometry
+        let currentSnapshot = FocusedWindowSnapshot(
+            window: snapshot.window, windowIdentifier: snapshot.windowIdentifier,
+            processIdentifier: snapshot.processIdentifier, applicationName: snapshot.applicationName,
+            bundleIdentifier: snapshot.bundleIdentifier, geometry: currentGeometry
         )
-        if effectiveGeometry.origin != geometry.origin {
-            try focusedWindowService.setPosition(effectiveGeometry.origin, for: snapshot.window)
-        }
-        retrySnapGeometry(effectiveGeometry, direction: direction, on: display, for: snapshot, attempt: 0, snapRequestID: snapRequestID)
+        try transitionWindow(to: geometry, snapshot: currentSnapshot, animationWriteOrder: .moveBeforeResize, write: { [focusedWindowService] frame in
+            try focusedWindowService.setPosition(frame.origin, for: snapshot.window)
+            try focusedWindowService.setSize(frame.size, for: snapshot.window)
+        }, completion: { [weak self] in
+            guard let self, self.activeSnapRequestID == snapRequestID else { return }
+            let effectiveGeometry = self.centeredFullScreenGeometryIfNeeded(
+                requestedGeometry: geometry, direction: direction, display: display,
+                window: snapshot.window, fallbackProcessIdentifier: snapshot.processIdentifier
+            )
+            if effectiveGeometry.origin != geometry.origin {
+                try self.focusedWindowService.setPosition(effectiveGeometry.origin, for: snapshot.window)
+            }
+            self.retrySnapGeometry(effectiveGeometry, direction: direction, on: display, for: snapshot, attempt: 0, snapRequestID: snapRequestID)
+        })
     }
 
     private func retrySnapGeometry(_ geometry: WindowGeometry, direction: SnapDirection, on display: DisplayContext, for snapshot: FocusedWindowSnapshot, attempt: Int, snapRequestID: UUID) {
@@ -1860,12 +1992,16 @@ final class AppState: ObservableObject {
         lastSnapProcessIdentifier = nil
         lastSnapWindowIdentifier = nil
         snapFractionIndex = 0
+        thirdSnapCycle.reset()
     }
 
     private func snapShortcut(for direction: SnapDirection) -> KeyboardShortcut? {
         switch direction {
         case .left: snapLeftShortcut
         case .right: snapRightShortcut
+        case .leftThird: snapLeftThirdShortcut
+        case .rightThird: snapRightThirdShortcut
+        case .centerThird: nil
         case .top: snapTopShortcut
         case .bottom: snapBottomShortcut
         case .fullScreen: snapFullScreenShortcut
@@ -1880,6 +2016,9 @@ final class AppState: ObservableObject {
         switch direction {
         case .left: snapLeftShortcut = shortcut
         case .right: snapRightShortcut = shortcut
+        case .leftThird: snapLeftThirdShortcut = shortcut
+        case .rightThird: snapRightThirdShortcut = shortcut
+        case .centerThird: break
         case .top: snapTopShortcut = shortcut
         case .bottom: snapBottomShortcut = shortcut
         case .fullScreen: snapFullScreenShortcut = shortcut
@@ -1912,6 +2051,9 @@ final class AppState: ObservableObject {
         switch direction {
         case .left: "the left"
         case .right: "the right"
+        case .leftThird: "the left third"
+        case .centerThird: "the center third"
+        case .rightThird: "the right third"
         case .top: "the top"
         case .bottom: "the bottom"
         case .fullScreen: "full screen"
@@ -1924,7 +2066,7 @@ final class AppState: ObservableObject {
 
     private enum GlobalShortcutKind: Equatable {
         case moveAllToDisplay(Int)
-        case saveHome, restoreHome, undoHome, redoHome, restoreAll, centerAndSaveHome, moveToNextDisplay, moveToPreviousDisplay, snapLeft, snapRight, snapTop, snapBottom, snapFullScreen, snapTopLeft, snapTopRight, snapBottomLeft, snapBottomRight, increaseWidth, decreaseWidth, increaseHeight, decreaseHeight
+        case saveHome, restoreHome, undoHome, redoHome, restoreAll, centerAndSaveHome, moveToNextDisplay, moveToPreviousDisplay, snapLeft, snapRight, snapLeftThird, snapRightThird, snapTop, snapBottom, snapFullScreen, snapTopLeft, snapTopRight, snapBottomLeft, snapBottomRight, increaseWidth, decreaseWidth, increaseHeight, decreaseHeight
     }
 
     private func isAvailableGlobalShortcut(_ shortcut: KeyboardShortcut, excluding kind: GlobalShortcutKind) -> Bool {
@@ -1939,6 +2081,8 @@ final class AppState: ObservableObject {
             (.moveToPreviousDisplay, moveToPreviousDisplayShortcut),
             (.snapLeft, snapLeftShortcut),
             (.snapRight, snapRightShortcut),
+            (.snapLeftThird, snapLeftThirdShortcut),
+            (.snapRightThird, snapRightThirdShortcut),
             (.snapTop, snapTopShortcut),
             (.snapBottom, snapBottomShortcut),
             (.snapFullScreen, snapFullScreenShortcut),
@@ -1956,6 +2100,8 @@ final class AppState: ObservableObject {
     }
 
     private func perform(_ action: String, operation: (FocusedWindowSnapshot) throws -> Void) {
+        windowAnimationService.cancelAll()
+        activeSnapRequestID = nil
         cancelDisplayMoveRestoreStabilization()
         do {
             let snapshot = try focusedWindowService.focusedWindow()

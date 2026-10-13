@@ -172,6 +172,8 @@ private struct SnapAndResizeSettingsPage: View {
                     ShortcutSettingRow(title: "Full screen", shortcut: appState.snapFullScreenShortcut, onRecord: appState.updateSnapFullScreenShortcut, onClear: { appState.clearSnapShortcut(.fullScreen) })
                     ShortcutSettingRow(title: "Left", shortcut: appState.snapLeftShortcut, onRecord: appState.updateSnapLeftShortcut, onClear: { appState.clearSnapShortcut(.left) })
                     ShortcutSettingRow(title: "Right", shortcut: appState.snapRightShortcut, onRecord: appState.updateSnapRightShortcut, onClear: { appState.clearSnapShortcut(.right) })
+                    ShortcutSettingRow(title: "Thirds from left", shortcut: appState.snapLeftThirdShortcut, onRecord: appState.updateSnapLeftThirdShortcut, onClear: { appState.clearSnapShortcut(.leftThird) })
+                    ShortcutSettingRow(title: "Thirds from right", shortcut: appState.snapRightThirdShortcut, onRecord: appState.updateSnapRightThirdShortcut, onClear: { appState.clearSnapShortcut(.rightThird) })
                     ShortcutSettingRow(title: "Top", shortcut: appState.snapTopShortcut, onRecord: appState.updateSnapTopShortcut, onClear: { appState.clearSnapShortcut(.top) })
                     ShortcutSettingRow(title: "Bottom", shortcut: appState.snapBottomShortcut, onRecord: appState.updateSnapBottomShortcut, onClear: { appState.clearSnapShortcut(.bottom) })
                     ShortcutSettingRow(title: "Top left", shortcut: appState.snapTopLeftShortcut, onRecord: appState.updateSnapTopLeftShortcut, onClear: { appState.clearSnapShortcut(.topLeft) })
@@ -198,6 +200,7 @@ private struct SnapAndResizeSettingsPage: View {
                             .foregroundStyle(.secondary)
                     }
                     SettingsFootnote("Repeat a side or corner shortcut to cycle through 50%, 66%, and 33% widths.")
+                    SettingsFootnote("Thirds from left cycles left → center → right; thirds from right cycles right → center → left. Each column fills the usable height.")
                 }
                 .padding(.vertical, 2)
             }
@@ -334,6 +337,41 @@ private struct AutomationSettingsPage: View {
                         )
                     )
                     SettingsFootnote("A window in Full Screen Snap fills the destination display with your Snap padding, instead of restoring Home. Applies to Next/Previous Display and Move All. Saved Homes stay unchanged. Side and corner snaps keep their usual behavior; native macOS full screen is unaffected.")
+                }
+                .padding(.vertical, 2)
+            }
+
+            GroupBox("Experimental") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(
+                        "Animate window moves",
+                        isOn: Binding(get: { appState.animatedWindowMovesEnabled }, set: appState.setAnimatedWindowMovesEnabled)
+                    )
+                    SettingsFootnote("Smooth transitions for Snap, Restore Home, Undo/Redo, Restore All, and display moves. Off by default. Smoothness varies by app. Respects macOS Reduce Motion.")
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Animation duration")
+                            Spacer()
+                            Text(appState.windowAnimationDuration, format: .number.precision(.fractionLength(2)))
+                                .monospacedDigit()
+                            Text("s").foregroundStyle(.secondary)
+                            Button("Reset") { appState.setWindowAnimationDuration(WindowAnimationTiming.defaultDuration) }
+                        }
+                        HStack {
+                            Text("Fast").foregroundStyle(.secondary)
+                            Slider(
+                                value: Binding(get: { appState.windowAnimationDuration }, set: appState.setWindowAnimationDuration),
+                                in: WindowAnimationTiming.durationRange,
+                                step: 0.01
+                            )
+                            .accessibilityLabel("Animation duration")
+                            .accessibilityValue("\(Int((appState.windowAnimationDuration * 1000).rounded())) milliseconds")
+                            Text("Slow").foregroundStyle(.secondary)
+                        }
+                        SettingsFootnote("Longer transitions move more slowly. Applies to your next window move. Default: 0.32 seconds.")
+                    }
+                    .disabled(!appState.animatedWindowMovesEnabled)
                 }
                 .padding(.vertical, 2)
             }

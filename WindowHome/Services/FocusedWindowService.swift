@@ -289,12 +289,35 @@ final class FocusedWindowService {
         }
     }
 
-    func setPosition(_ position: CGPoint, for window: AXUIElement) throws {
-        var canSetPosition = DarwinBoolean(false)
-        let result = AXUIElementIsAttributeSettable(window, kAXPositionAttribute as CFString, &canSetPosition)
-        guard result == .success, canSetPosition.boolValue else {
-            throw FocusedWindowError.positionNotSettable
+    func animationWriter(
+        from source: WindowGeometry, to target: WindowGeometry,
+        writeOrder: DisplayMoveGeometryWriteOrder, for window: AXUIElement
+    ) throws -> WindowAnimationGeometryWriter {
+        try requireSettable(kAXPositionAttribute, for: window, error: .positionNotSettable)
+        if source.size != target.size {
+            try requireSettable(kAXSizeAttribute, for: window, error: .sizeNotSettable)
         }
+        return WindowAnimationGeometryWriter(
+            source: source, writeOrder: writeOrder,
+            setPosition: { [self] in try writePositionValue($0, for: window) },
+            setSize: { [self] in try writeSizeValue($0, for: window) }
+        )
+    }
+
+    private func requireSettable(_ attribute: String, for window: AXUIElement, error: FocusedWindowError) throws {
+        var canSetPosition = DarwinBoolean(false)
+        let result = AXUIElementIsAttributeSettable(window, attribute as CFString, &canSetPosition)
+        guard result == .success, canSetPosition.boolValue else {
+            throw error
+        }
+    }
+
+    func setPosition(_ position: CGPoint, for window: AXUIElement) throws {
+        try requireSettable(kAXPositionAttribute, for: window, error: .positionNotSettable)
+        try writePositionValue(position, for: window)
+    }
+
+    private func writePositionValue(_ position: CGPoint, for window: AXUIElement) throws {
         var position = position
         guard let positionValue = AXValueCreate(.cgPoint, &position) else {
             throw FocusedWindowError.unsupportedWindow
@@ -304,11 +327,11 @@ final class FocusedWindowService {
     }
 
     func setSize(_ size: CGSize, for window: AXUIElement) throws {
-        var canSetSize = DarwinBoolean(false)
-        let result = AXUIElementIsAttributeSettable(window, kAXSizeAttribute as CFString, &canSetSize)
-        guard result == .success, canSetSize.boolValue else {
-            throw FocusedWindowError.sizeNotSettable
-        }
+        try requireSettable(kAXSizeAttribute, for: window, error: .sizeNotSettable)
+        try writeSizeValue(size, for: window)
+    }
+
+    private func writeSizeValue(_ size: CGSize, for window: AXUIElement) throws {
         var size = size
         guard let sizeValue = AXValueCreate(.cgSize, &size) else {
             throw FocusedWindowError.unsupportedWindow
